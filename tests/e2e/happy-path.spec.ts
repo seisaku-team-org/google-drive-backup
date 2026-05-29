@@ -41,11 +41,13 @@ test.describe('Happy path (stub mode)', () => {
     await expect(startButton).toBeEnabled();
     await startButton.click();
 
-    // 進捗画面
-    await expect(page.getByRole('heading', { name: '複製中…' })).toBeVisible();
-    await expect(page.getByRole('progressbar')).toBeVisible();
+    // 進捗画面（2 フェーズ: 集計中 → 複製中）
+    // 「集計中…」または「複製中…」のいずれかが見えれば OK
+    await expect(
+      page.getByRole('heading', { name: /集計中…|複製中…/ }),
+    ).toBeVisible({ timeout: 5000 });
 
-    // レポート画面（数件規模のスタブなので 10 秒以内に完了する想定）
+    // レポート画面（数件規模のスタブなので 15 秒以内に完了する想定）
     await expect(page.getByText('✓ 複製が完了しました')).toBeVisible({ timeout: 15_000 });
     // 複製先リンクが見える
     await expect(page.getByText(/📁 Copy of スタブフォルダ/)).toBeVisible();
