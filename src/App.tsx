@@ -1,6 +1,6 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { AppProvider, useAppDispatch } from './state/AppContext';
-import { ServicesProvider } from './services/ServicesContext';
+import { ServicesProvider, useServices } from './services/ServicesContext';
 import { cancelCurrentJob } from './services/jobRunner';
 import { AppRouter } from './routes/router';
 import { Header } from './components/Header/Header';
@@ -11,6 +11,7 @@ export function App() {
   return (
     <ServicesProvider>
       <AppProvider>
+        <AuthCallbackConsumer />
         <Header />
         <AppRouter />
         <ToastContainer />
@@ -18,6 +19,50 @@ export function App() {
       </AppProvider>
     </ServicesProvider>
   );
+}
+
+/**
+ * リダイレクト型 OAuth の戻り URL（#access_token=...）を起動時に 1 回だけ消費する。
+ * authClient.consumeRedirectCallback() が URL 掃除も担当する。
+ */
+function AuthCallbackConsumer() {
+  const { authClient } = useServices();
+  const dispatch = useAppDispatch();
+  const ranRef = useRef(false);
+
+  useEffect(() => {
+    if (ranRef.current) return;
+    ranRef.current = true;
+    authClient
+      .consumeRedirectCallback()
+      .then((result) => {
+        if (!result) return;
+        dispatch({
+          type: 'auth/signInSucceeded',
+          payload: {
+            accessToken: result.accessToken,
+            expiresAt: result.expiresAt,
+            user: result.user,
+          },
+        });
+      })
+      .catch((err) => {
+        console.error('[App] consumeRedirectCallback failed:', err);
+        dispatch({
+          type: 'ui/toastShown',
+          payload: {
+            id: `auth-callback-fail-${Date.now()}`,
+            message:
+              err instanceof Error
+                ? `ログイン後の処理に失敗しました: ${err.message}`
+                : 'ログイン後の処理に失敗しました',
+            level: 'error',
+          },
+        });
+      });
+  }, [authClient, dispatch]);
+
+  return null;
 }
 
 function ConfirmDialogHostWired() {

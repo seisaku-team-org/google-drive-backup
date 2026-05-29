@@ -1,11 +1,22 @@
 /**
- * Google Identity Services（GIS）のトークンクライアントを薄くラップする。
- * 機能設計書 §9.1 / 技術仕様 §6.2 に対応。
+ * Google OAuth 2.0 を **リダイレクト型 implicit フロー**で実装する AuthClient。
  *
- * 設計上の方針:
- *   - アクセストークンはこのモジュール内のクロージャ変数のみに保持する
- *     （localStorage / sessionStorage / Cookie には書かない）
- *   - 401 検知時の通知は onTokenExpired コールバック経由
+ * 設計上の経緯：
+ *   当初は GIS Token Client（popup 型）を使っていたが、GitHub Pages のようにレスポンスヘッダーで
+ *   Cross-Origin-Opener-Policy を制御できない環境では、popup → opener の postMessage が
+ *   ブラウザ（Chrome）の COOP 既定挙動で阻まれて token が opener に届かない事象が発生した。
+ *   そのため popup を使わず、フルページのリダイレクトで OAuth を完走する方式に切り替えた。
+ *
+ * フロー：
+ *   signIn() → window.location を Google の認可エンドポイントへ向ける（Promise は永久に未解決）
+ *   ↓ Google で認証・同意
+ *   ↓ Google が redirect_uri へ `#access_token=...&state=...` 付きで遷移
+ *   App 起動時に consumeRedirectCallback() が URL を見て token を回収し、URL を掃除
+ *
+ * セキュリティ：
+ *   - state パラメータで CSRF を防御（sessionStorage で一時保持し検証後削除）
+ *   - access_token は cachedToken（クロージャ変数）のみ保持。
+ *     リダイレクト中の URL 上には一時的に token が乗るが、回収後すぐ history.replaceState で消す。
  */
 
 import type { UserInfo } from '../types';
@@ -18,52 +29,9 @@ const SCOPES = [
   'profile',
 ].join(' ');
 
+const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
-
-// ============================================================
-// 型定義（GIS の最小サブセット）
-// ============================================================
-
-type GisTokenResponse = {
-  access_token?: string;
-  expires_in?: number;
-  scope?: string;
-  token_type?: string;
-  error?: string;
-};
-
-type GisErrorResponse = {
-  type: string;
-  message?: string;
-};
-
-type GisTokenClient = {
-  requestAccessToken: (override?: { prompt?: string }) => void;
-};
-
-type GisOauth2 = {
-  initTokenClient: (config: {
-    client_id: string;
-    scope: string;
-    callback: (response: GisTokenResponse) => void;
-    error_callback?: (error: GisErrorResponse) => void;
-  }) => GisTokenClient;
-  revoke?: (token: string, done?: () => void) => void;
-};
-
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        oauth2: GisOauth2;
-      };
-    };
-  }
-}
-
-// ============================================================
-// AuthClient
-// ============================================================
+const STATE_KEY = '__oauth_state';
 
 export type SignInResult = {
   accessToken: string;
@@ -72,20 +40,36 @@ export type SignInResult = {
 };
 
 export type AuthClient = {
+  /** Google の認可ページへリダイレクト。返り値の Promise は基本的に解決しない（ブラウザが遷移する） */
   signIn: () => Promise<SignInResult>;
   signOut: () => void;
   getToken: () => string | null;
   isExpired: () => boolean;
-  /** 401 検知 / 期限切れ通知。返り値は unsubscribe 関数 */
   onTokenExpired: (handler: () => void) => () => void;
-  /** 401 を受けたときに呼ぶ（DriveApiClient から）*/
   notifyTokenExpired: () => void;
+  /**
+   * App 起動時に呼ぶ。URL hash に access_token があれば回収して返す。
+   * 何もなければ null を返す。回収後は URL から token を消す。
+   */
+  consumeRedirectCallback: () => Promise<SignInResult | null>;
 };
 
 export function createAuthClient(clientId: string): AuthClient {
   let cachedToken: string | null = null;
   let cachedExpiresAt: number | null = null;
   const expiredHandlers = new Set<() => void>();
+
+  function getRedirectUri(): string {
+    // Cloud Console で承認済みのリダイレクト URI と完全一致させる必要があるため pathname まで含める
+    return window.location.origin + window.location.pathname;
+  }
+
+  function generateState(): string {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
 
   function signOut(): void {
     cachedToken = null;
@@ -103,34 +87,52 @@ export function createAuthClient(clientId: string): AuthClient {
   }
 
   async function signIn(): Promise<SignInResult> {
-    const oauth2 = await waitForGoogleIdentity();
-    const accessToken = await new Promise<{ token: string; expiresIn: number }>(
-      (resolve, reject) => {
-        const client = oauth2.initTokenClient({
-          client_id: clientId,
-          scope: SCOPES,
-          callback: (res) => {
-            // デバッグ: callback の生レスポンスを出力（成功・失敗ともに）
-            console.warn('[AuthClient] callback received:', res);
-            if (res.error || !res.access_token) {
-              reject(new Error(res.error ?? 'OAuth token request failed'));
-              return;
-            }
-            resolve({ token: res.access_token, expiresIn: res.expires_in ?? 3600 });
-          },
-          error_callback: (err) => {
-            // デバッグ: error_callback の詳細を出力
-            console.error('[AuthClient] error_callback:', err);
-            reject(new Error(err.message ?? err.type ?? 'OAuth error'));
-          },
-        });
-        // prompt: 'consent' で初回同意画面を確実に出す（デバッグ目的、本質的に必要なら維持）
-        client.requestAccessToken({ prompt: 'consent' });
-      },
-    );
-    cachedToken = accessToken.token;
-    cachedExpiresAt = Date.now() + accessToken.expiresIn * 1000;
-    const user = await fetchUserInfo(cachedToken);
+    const state = generateState();
+    sessionStorage.setItem(STATE_KEY, state);
+    const params = new URLSearchParams({
+      client_id: clientId,
+      response_type: 'token',
+      scope: SCOPES,
+      redirect_uri: getRedirectUri(),
+      state,
+      include_granted_scopes: 'true',
+      prompt: 'consent',
+    });
+    window.location.href = `${AUTH_URL}?${params.toString()}`;
+    // ブラウザが遷移するため、この Promise は事実上 resolve しない
+    return new Promise<SignInResult>(() => {});
+  }
+
+  async function consumeRedirectCallback(): Promise<SignInResult | null> {
+    const hash = window.location.hash;
+    if (!hash || !hash.includes('access_token=')) return null;
+
+    // hash は '#access_token=...&state=...' か '#/access_token=...' の可能性がある
+    const cleanHash = hash.replace(/^#\/?/, '');
+    const params = new URLSearchParams(cleanHash);
+    const token = params.get('access_token');
+    const expiresInRaw = params.get('expires_in');
+    const state = params.get('state');
+
+    if (!token) return null;
+
+    // state 検証（CSRF 対策）
+    const savedState = sessionStorage.getItem(STATE_KEY);
+    sessionStorage.removeItem(STATE_KEY);
+    if (state !== savedState) {
+      console.error('[AuthClient] OAuth state mismatch — possible CSRF');
+      // URL は消しておく
+      window.history.replaceState({}, '', window.location.pathname);
+      return null;
+    }
+
+    // URL から token を消す（履歴・リロード防止）
+    window.history.replaceState({}, '', window.location.pathname);
+
+    const expiresIn = parseInt(expiresInRaw ?? '3600', 10);
+    cachedToken = token;
+    cachedExpiresAt = Date.now() + expiresIn * 1000;
+    const user = await fetchUserInfo(token);
     return { accessToken: cachedToken, expiresAt: cachedExpiresAt, user };
   }
 
@@ -144,36 +146,8 @@ export function createAuthClient(clientId: string): AuthClient {
       return () => expiredHandlers.delete(handler);
     },
     notifyTokenExpired,
+    consumeRedirectCallback,
   };
-}
-
-// ============================================================
-// 補助関数
-// ============================================================
-
-async function waitForGoogleIdentity(timeoutMs = 10_000): Promise<GisOauth2> {
-  if (typeof window === 'undefined') {
-    throw new Error('Google Identity Services is only available in the browser');
-  }
-  if (window.google?.accounts?.oauth2) {
-    return window.google.accounts.oauth2 as GisOauth2;
-  }
-  // gsi/client が defer 読込なので少し待つ
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-    const timer = setInterval(() => {
-      const g = window.google;
-      if (g?.accounts?.oauth2) {
-        clearInterval(timer);
-        resolve(g.accounts.oauth2 as GisOauth2);
-        return;
-      }
-      if (Date.now() - start > timeoutMs) {
-        clearInterval(timer);
-        reject(new Error('Google Identity Services script did not load within timeout'));
-      }
-    }, 100);
-  });
 }
 
 async function fetchUserInfo(accessToken: string): Promise<UserInfo> {

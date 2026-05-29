@@ -18,6 +18,8 @@ export function LoginView() {
     setError(null);
     dispatch({ type: 'auth/signInRequested' });
     try {
+      // 実 AuthClient はここで window.location を変えるため、以下は実行されない（ブラウザが遷移する）
+      // スタブの場合は Promise が resolve して以下が走る
       const result = await authClient.signIn();
       dispatch({
         type: 'auth/signInSucceeded',

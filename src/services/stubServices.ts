@@ -56,6 +56,8 @@ export function createStubServices(): Services {
       token = null;
       for (const h of tokenExpiredHandlers) h();
     },
+    // スタブはリダイレクトしないため、コールバック消費は常に null
+    consumeRedirectCallback: async () => null,
   };
 
   const driveApi = createStubDriveApi();
