@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAuth } from '../../state/AppContext';
 import { useServices } from '../../services/ServicesContext';
@@ -13,6 +13,14 @@ export function LoginView() {
   const { authClient } = useServices();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+
+  // 認証済みなら自動的にホームへ。リダイレクト型 OAuth では LoginView に戻ってきた直後、
+  // AuthCallbackConsumer が dispatch して status=authenticated になるのを検知する。
+  useEffect(() => {
+    if (auth.status === 'authenticated') {
+      navigate('/', { replace: true });
+    }
+  }, [auth.status, navigate]);
 
   const handleSignIn = async () => {
     setError(null);
