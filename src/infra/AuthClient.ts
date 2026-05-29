@@ -110,6 +110,8 @@ export function createAuthClient(clientId: string): AuthClient {
           client_id: clientId,
           scope: SCOPES,
           callback: (res) => {
+            // デバッグ: callback の生レスポンスを出力（成功・失敗ともに）
+            console.warn('[AuthClient] callback received:', res);
             if (res.error || !res.access_token) {
               reject(new Error(res.error ?? 'OAuth token request failed'));
               return;
@@ -117,10 +119,13 @@ export function createAuthClient(clientId: string): AuthClient {
             resolve({ token: res.access_token, expiresIn: res.expires_in ?? 3600 });
           },
           error_callback: (err) => {
+            // デバッグ: error_callback の詳細を出力
+            console.error('[AuthClient] error_callback:', err);
             reject(new Error(err.message ?? err.type ?? 'OAuth error'));
           },
         });
-        client.requestAccessToken({ prompt: '' });
+        // prompt: 'consent' で初回同意画面を確実に出す（デバッグ目的、本質的に必要なら維持）
+        client.requestAccessToken({ prompt: 'consent' });
       },
     );
     cachedToken = accessToken.token;
