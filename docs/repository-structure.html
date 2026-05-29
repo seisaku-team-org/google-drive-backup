@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>リポジトリ構造定義書 — Google Drive バックアップ</title>
+  <link rel="stylesheet" href="assets/design-system.css">
+</head>
+<body>
+
+  <header class="doc-header">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <h1>リポジトリ構造定義書</h1>
+    <p class="doc-meta">Google Drive バックアップ ／ 最終更新: 2026-05-28 ／ ステータス: ドラフト</p>
+  </header>
+
+  <details class="toc" open>
+    <summary>目次</summary>
+    <nav aria-label="目次">
+      <ol>
+        <li><a href="#overview">1. 全体構造（ツリー）</a></li>
+        <li><a href="#top-level">2. トップレベルディレクトリの役割</a></li>
+        <li><a href="#src-structure">3. <code>src/</code> の内訳</a></li>
+        <li><a href="#tests-structure">4. <code>tests/</code> の内訳</a></li>
+        <li><a href="#config-files">5. 設定ファイル一覧</a></li>
+        <li><a href="#placement-rules">6. ファイル配置ルール（新規追加時の判断基準）</a></li>
+        <li><a href="#naming-rules">7. 命名規則</a></li>
+      </ol>
+    </nav>
+  </details>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section id="overview">
+      <h2>1. 全体構造（ツリー）</h2>
+      <pre><code>./
+├── .github/
+│   └── workflows/
+│       ├── ci.yml              # PR: typecheck + lint + unit test
+│       └── deploy.yml          # main マージで build → GitHub Pages
+├── .steering/                  # 一時的ステアリング（作業単位ドキュメント）
+│   └── YYYYMMDD-開発タイトル/
+│       ├── requirements.html
+│       ├── design.html
+│       └── tasklist.md
+├── docs/                       # 永続的ドキュメント（恒久仕様）
+│   ├── assets/
+│   │   ├── design-system.css
+│   │   ├── template.html
+│   │   └── images/
+│   ├── product-requirements.html
+│   ├── ui-specification.html
+│   ├── functional-design.html
+│   ├── architecture.html
+│   ├── repository-structure.html
+│   ├── development-guidelines.html
+│   ├── glossary.html
+│   └── index.html
+├── public/                     # Vite が無加工でコピーする静的ファイル
+│   └── favicon.svg
+├── src/                        # アプリ本体ソース
+│   ├── main.tsx                # エントリーポイント
+│   ├── App.tsx                 # ルートコンポーネント
+│   ├── routes/
+│   │   └── router.tsx
+│   ├── views/                  # 画面（SCR-001〜004 に対応）
+│   │   ├── LoginView/
+│   │   │   ├── LoginView.tsx
+│   │   │   ├── LoginView.module.css
+│   │   │   └── LoginView.test.tsx
+│   │   ├── HomeView/
+│   │   ├── ProgressView/
+│   │   └── ReportView/
+│   ├── components/             # 共通 UI コンポーネント
+│   │   ├── Header/
+│   │   ├── Toast/
+│   │   ├── ConfirmDialog/
+│   │   ├── Spinner/
+│   │   ├── ProgressBar/
+│   │   └── Button/
+│   ├── state/                  # State Store (Context + Reducer)
+│   │   ├── AppContext.tsx
+│   │   ├── authSlice.ts
+│   │   ├── jobSlice.ts
+│   │   └── uiSlice.ts
+│   ├── domain/                 # ビジネスロジック（純粋関数中心）
+│   │   ├── CopyEngine.ts
+│   │   ├── UrlParser.ts
+│   │   └── ReportBuilder.ts
+│   ├── infra/                  # 外部 IO
+│   │   ├── AuthClient.ts
+│   │   ├── DriveApiClient.ts
+│   │   └── driveTypes.ts       # Drive API レスポンスの型
+│   ├── types/                  # ドメイン共通型
+│   │   └── index.ts            # AuthState / CopyJob / CopyJobItem 等
+│   ├── styles/
+│   │   ├── tokens.css          # design-system.css のサブセット（実装で使う変数）
+│   │   └── global.css          # body / リセット系
+│   ├── utils/                  # 汎用ユーティリティ
+│   │   ├── backoff.ts          # 指数バックオフ
+│   │   └── semaphore.ts        # 並列度制御
+│   └── env.d.ts                # import.meta.env の型定義
+├── tests/
+│   ├── unit/                   # Vitest（src/__tests__ を使わずに集約）
+│   │   ├── UrlParser.test.ts
+│   │   ├── CopyEngine.test.ts
+│   │   └── ReportBuilder.test.ts
+│   └── e2e/                    # Playwright
+│       ├── happy-path.spec.ts
+│       └── fixtures/
+│           └── stub-server.ts  # OAuth / Drive API のスタブ
+├── .editorconfig
+├── .eslintrc.cjs
+├── .gitignore
+├── .prettierrc
+├── CLAUDE.md                   # 既存（プロジェクトメモリ、本ドキュメント群の運用ルール）
+├── README.md
+├── index.html                  # Vite が読むエントリー HTML（タイトル / meta / CSP / GIS script）
+├── package.json
+├── package-lock.json
+├── playwright.config.ts
+├── tsconfig.json
+├── tsconfig.node.json          # vite.config.ts 用（Node 環境型）
+├── vite.config.ts
+└── vitest.config.ts            # vite.config と分けて管理</code></pre>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="top-level">
+      <h2>2. トップレベルディレクトリの役割</h2>
+      <table>
+        <thead><tr><th>パス</th><th>役割</th><th>編集者・編集タイミング</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>.github/workflows/</code></td>
+            <td>GitHub Actions の CI / デプロイ定義</td>
+            <td>CI 改修時のみ。原則 PR レビュー必須</td>
+          </tr>
+          <tr>
+            <td><code>.steering/</code></td>
+            <td>作業単位の一時ドキュメント（YYYYMMDD-開発タイトル/ ごと）</td>
+            <td>新しい作業を始めるたびに新規ディレクトリ作成。CLAUDE.md「機能追加・修正時の手順」参照</td>
+          </tr>
+          <tr>
+            <td><code>docs/</code></td>
+            <td>恒久的な仕様ドキュメント。アプリの「正」</td>
+            <td>UI 仕様 / 機能設計 / 用語などの変更時。実装と同時にコミット</td>
+          </tr>
+          <tr>
+            <td><code>public/</code></td>
+            <td>Vite が無加工でビルド成果に含める静的ファイル（favicon 等）</td>
+            <td>ビルド対象外のアセット追加時のみ</td>
+          </tr>
+          <tr>
+            <td><code>src/</code></td>
+            <td>アプリ本体ソースコード</td>
+            <td>機能実装のメイン</td>
+          </tr>
+          <tr>
+            <td><code>tests/</code></td>
+            <td>ユニット・E2E テスト</td>
+            <td>機能実装と同期</td>
+          </tr>
+          <tr>
+            <td><code>index.html</code></td>
+            <td>Vite が読むエントリー HTML。<code>&lt;meta&gt;</code>・CSP・GIS スクリプト読み込みを記述</td>
+            <td>初期設定後はほぼ触らない</td>
+          </tr>
+          <tr>
+            <td><code>CLAUDE.md</code></td>
+            <td>本リポジトリでの AI 共同作業のメタルール</td>
+            <td>ルール改訂時のみ</td>
+          </tr>
+          <tr>
+            <td><code>README.md</code></td>
+            <td>「これは何のリポジトリか」「セットアップ手順」「主要 npm スクリプト」</td>
+            <td>初期セットアップ後・主要変更時</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="src-structure">
+      <h2>3. <code>src/</code> の内訳</h2>
+      <p>機能設計書 §4「コンポーネント設計」のレイヤー区分に対応する。レイヤー間の依存方向は <strong>views → state / domain → infra</strong> とし、逆流は禁止。</p>
+
+      <h3>3.1 ディレクトリと責務</h3>
+      <table>
+        <thead><tr><th>ディレクトリ</th><th>役割</th><th>典型ファイル</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>src/views/</code></td>
+            <td>画面コンポーネント。UI 仕様書の SCR-001〜004 と 1:1 対応</td>
+            <td><code>LoginView.tsx</code>, <code>LoginView.module.css</code>, <code>LoginView.test.tsx</code></td>
+          </tr>
+          <tr>
+            <td><code>src/components/</code></td>
+            <td>2 つ以上のビューで再利用する UI 部品</td>
+            <td><code>Header</code>, <code>Toast</code>, <code>ConfirmDialog</code>, <code>Spinner</code>, <code>ProgressBar</code>, <code>Button</code></td>
+          </tr>
+          <tr>
+            <td><code>src/state/</code></td>
+            <td>アプリ状態（Context + Reducer）。スライス単位でファイル分割</td>
+            <td><code>AppContext.tsx</code>, <code>authSlice.ts</code>, <code>jobSlice.ts</code>, <code>uiSlice.ts</code></td>
+          </tr>
+          <tr>
+            <td><code>src/domain/</code></td>
+            <td>ビジネスロジック。<strong>React 非依存</strong>。純粋関数を志向</td>
+            <td><code>CopyEngine.ts</code>, <code>UrlParser.ts</code>, <code>ReportBuilder.ts</code></td>
+          </tr>
+          <tr>
+            <td><code>src/infra/</code></td>
+            <td>外部 IO（OAuth / Drive API / fetch）。本層のみが <code>fetch</code> や <code>window.google</code> を直接触る</td>
+            <td><code>AuthClient.ts</code>, <code>DriveApiClient.ts</code>, <code>driveTypes.ts</code></td>
+          </tr>
+          <tr>
+            <td><code>src/types/</code></td>
+            <td>ドメイン共通型（複数レイヤーで使う型のみ）</td>
+            <td><code>index.ts</code>（<code>AuthState</code>, <code>CopyJob</code>, <code>CopyJobItem</code>, <code>FolderMetadata</code> 等）</td>
+          </tr>
+          <tr>
+            <td><code>src/styles/</code></td>
+            <td>グローバル CSS とデザイントークン</td>
+            <td><code>tokens.css</code>, <code>global.css</code></td>
+          </tr>
+          <tr>
+            <td><code>src/utils/</code></td>
+            <td>レイヤーをまたぐ小さな汎用関数</td>
+            <td><code>backoff.ts</code>, <code>semaphore.ts</code></td>
+          </tr>
+          <tr>
+            <td><code>src/routes/</code></td>
+            <td>React Router の設定</td>
+            <td><code>router.tsx</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>3.2 1 コンポーネント = 1 フォルダの慣例</h3>
+      <p>views / components 配下では、コンポーネントごとにフォルダを切り、3 ファイル構成を基本とする：</p>
+      <pre><code>HomeView/
+├── HomeView.tsx              # 実装
+├── HomeView.module.css       # スコープ付きスタイル
+└── HomeView.test.tsx         # コンポーネントテスト</code></pre>
+      <p>サブコンポーネントが必要なら同フォルダ内に <code>_PreviewCard.tsx</code> のように先頭アンダースコアで private 扱いを示す。外部から import する想定があるなら別フォルダに昇格する。</p>
+
+      <h3>3.3 依存方向ルール（重要）</h3>
+      <figure>
+        <svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="レイヤー依存方向">
+          <defs>
+            <marker id="layer-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#4338ca"/>
+            </marker>
+          </defs>
+          <rect x="20" y="20" width="140" height="60" rx="6" fill="#eef2ff" stroke="#4338ca"/>
+          <text x="90" y="55" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">views</text>
+
+          <rect x="200" y="20" width="140" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="270" y="55" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">state</text>
+
+          <rect x="380" y="20" width="140" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="450" y="55" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">domain</text>
+
+          <rect x="560" y="20" width="140" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="630" y="55" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">infra</text>
+
+          <line x1="160" y1="50" x2="198" y2="50" stroke="#4338ca" stroke-width="2" marker-end="url(#layer-arrow)"/>
+          <line x1="340" y1="50" x2="378" y2="50" stroke="#4338ca" stroke-width="2" marker-end="url(#layer-arrow)"/>
+          <line x1="520" y1="50" x2="558" y2="50" stroke="#4338ca" stroke-width="2" marker-end="url(#layer-arrow)"/>
+
+          <text x="360" y="140" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#475569">右向きのみ許可。逆向きの import は禁止。</text>
+          <text x="360" y="160" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#475569">types / utils / styles は全層から参照可（葉モジュール）。</text>
+        </svg>
+        <figcaption>図1. レイヤー間依存方向（右向き = 「依存する」）</figcaption>
+      </figure>
+      <table>
+        <thead><tr><th>From</th><th>To</th><th>許可</th></tr></thead>
+        <tbody>
+          <tr><td>views</td><td>state / components / types / utils / styles</td><td>OK</td></tr>
+          <tr><td>state</td><td>domain / types / utils</td><td>OK</td></tr>
+          <tr><td>domain</td><td>infra（インターフェース経由） / types / utils</td><td>OK</td></tr>
+          <tr><td>infra</td><td>types / utils</td><td>OK</td></tr>
+          <tr><td>domain / infra</td><td>views / state</td><td><strong>NG</strong></td></tr>
+          <tr><td>domain</td><td><code>fetch</code> 直接呼び出し</td><td><strong>NG</strong>（infra 経由）</td></tr>
+        </tbody>
+      </table>
+      <p>違反は ESLint の <code>import/no-restricted-paths</code> ルールで自動検出する設定を入れる（development-guidelines.html 参照予定）。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="tests-structure">
+      <h2>4. <code>tests/</code> の内訳</h2>
+      <h3>4.1 <code>tests/unit/</code>（Vitest）</h3>
+      <ul>
+        <li><strong>対象</strong>: <code>src/domain/</code> / <code>src/utils/</code> の純ロジック、<code>src/views/</code> のコンポーネント描画</li>
+        <li><strong>命名</strong>: <code>{対象モジュール名}.test.ts(x)</code></li>
+        <li><strong>配置</strong>: テスト対象と同階層（<code>views</code> 配下のコンポーネントテスト）にするか、<code>tests/unit/</code> に集約するかをモジュールに応じて選ぶ：
+          <ul>
+            <li>View / Component → 同階層（例: <code>src/views/HomeView/HomeView.test.tsx</code>）</li>
+            <li>純ロジック → <code>tests/unit/</code> に集約（例: <code>tests/unit/UrlParser.test.ts</code>）</li>
+          </ul>
+        </li>
+        <li><strong>モック</strong>: <code>DriveApiClient</code> 等のインターフェースを Vitest の <code>vi.fn()</code> で差し替える</li>
+      </ul>
+
+      <h3>4.2 <code>tests/e2e/</code>（Playwright）</h3>
+      <ul>
+        <li><strong>対象</strong>: ハッピーパス（ログイン省略のスタブ環境で URL 入力 → 複製 → レポート確認）</li>
+        <li><strong>スタブ</strong>: <code>fixtures/stub-server.ts</code> で OAuth と Drive API をローカルでフェイク。本番 API には接続しない</li>
+        <li><strong>実行</strong>: <code>npm run test:e2e</code>。CI では PR には含めず、main マージ時のみ実行（実行時間と安定性のバランス）</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="config-files">
+      <h2>5. 設定ファイル一覧</h2>
+      <table>
+        <thead><tr><th>ファイル</th><th>役割</th><th>主な設定値</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>package.json</code></td>
+            <td>依存とスクリプト</td>
+            <td><code>"type": "module"</code> / npm スクリプトは <a href="architecture.html#build-deploy">技術仕様書 §3.1</a> 参照</td>
+          </tr>
+          <tr>
+            <td><code>tsconfig.json</code></td>
+            <td>TypeScript 設定（アプリ用）</td>
+            <td><code>strict: true</code>, <code>noUncheckedIndexedAccess: true</code>, <code>jsx: "react-jsx"</code>, <code>target: "ES2022"</code></td>
+          </tr>
+          <tr>
+            <td><code>tsconfig.node.json</code></td>
+            <td>Node 環境用（vite.config.ts などをチェック）</td>
+            <td><code>include: ["vite.config.ts", "vitest.config.ts"]</code></td>
+          </tr>
+          <tr>
+            <td><code>vite.config.ts</code></td>
+            <td>Vite 設定</td>
+            <td><code>base: "/&lt;repo&gt;/"</code>（GitHub Pages 用）, React プラグイン</td>
+          </tr>
+          <tr>
+            <td><code>vitest.config.ts</code></td>
+            <td>Vitest 設定</td>
+            <td><code>environment: "jsdom"</code>, <code>setupFiles: ["./tests/setup.ts"]</code></td>
+          </tr>
+          <tr>
+            <td><code>playwright.config.ts</code></td>
+            <td>Playwright 設定</td>
+            <td><code>webServer: { command: "npm run dev" }</code>, baseURL は localhost</td>
+          </tr>
+          <tr>
+            <td><code>.eslintrc.cjs</code></td>
+            <td>ESLint 設定</td>
+            <td>React / Hooks / TS / Prettier 互換、<code>import/no-restricted-paths</code> でレイヤー逆流禁止</td>
+          </tr>
+          <tr>
+            <td><code>.prettierrc</code></td>
+            <td>整形ルール</td>
+            <td>singleQuote / semi / printWidth: 100 / trailingComma: "all"</td>
+          </tr>
+          <tr>
+            <td><code>.editorconfig</code></td>
+            <td>エディタ共通設定</td>
+            <td>LF / UTF-8 / インデント 2 スペース</td>
+          </tr>
+          <tr>
+            <td><code>.gitignore</code></td>
+            <td>—</td>
+            <td><code>node_modules/</code>, <code>dist/</code>, <code>.env.local</code>, Playwright の <code>test-results/</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="placement-rules">
+      <h2>6. ファイル配置ルール（新規追加時の判断基準）</h2>
+      <p>「このファイルはどこに置くべきか」を迷わないためのフローチャート。</p>
+
+      <h3>6.1 判断フロー</h3>
+      <figure>
+        <svg viewBox="0 0 740 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ファイル配置判断フロー">
+          <defs>
+            <marker id="place-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#4338ca"/>
+            </marker>
+          </defs>
+
+          <rect x="270" y="10" width="200" height="40" rx="6" fill="#eef2ff" stroke="#4338ca"/>
+          <text x="370" y="35" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="#0f172a">追加するファイルは？</text>
+
+          <rect x="20" y="80" width="180" height="40" rx="6" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="110" y="105" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">画面そのもの</text>
+          <text x="110" y="140" text-anchor="middle" font-family="monospace" font-size="11" fill="#475569">→ src/views/</text>
+
+          <rect x="220" y="80" width="180" height="40" rx="6" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="310" y="105" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">画面横断の UI 部品</text>
+          <text x="310" y="140" text-anchor="middle" font-family="monospace" font-size="11" fill="#475569">→ src/components/</text>
+
+          <rect x="420" y="80" width="180" height="40" rx="6" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="510" y="105" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">アプリ状態の保持</text>
+          <text x="510" y="140" text-anchor="middle" font-family="monospace" font-size="11" fill="#475569">→ src/state/</text>
+
+          <rect x="20" y="170" width="180" height="40" rx="6" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="110" y="195" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">純粋なビジネスロジック</text>
+          <text x="110" y="230" text-anchor="middle" font-family="monospace" font-size="11" fill="#475569">→ src/domain/</text>
+
+          <rect x="220" y="170" width="180" height="40" rx="6" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="310" y="195" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">外部 API / fetch</text>
+          <text x="310" y="230" text-anchor="middle" font-family="monospace" font-size="11" fill="#475569">→ src/infra/</text>
+
+          <rect x="420" y="170" width="180" height="40" rx="6" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="510" y="195" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">共通の型定義</text>
+          <text x="510" y="230" text-anchor="middle" font-family="monospace" font-size="11" fill="#475569">→ src/types/</text>
+
+          <rect x="20" y="260" width="180" height="40" rx="6" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="110" y="285" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">汎用ユーティリティ</text>
+          <text x="110" y="320" text-anchor="middle" font-family="monospace" font-size="11" fill="#475569">→ src/utils/</text>
+
+          <rect x="220" y="260" width="180" height="40" rx="6" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="310" y="285" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">スタイル / トークン</text>
+          <text x="310" y="320" text-anchor="middle" font-family="monospace" font-size="11" fill="#475569">→ src/styles/</text>
+
+          <rect x="420" y="260" width="180" height="40" rx="6" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="510" y="285" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">テストコード</text>
+          <text x="510" y="320" text-anchor="middle" font-family="monospace" font-size="11" fill="#475569">→ 同階層 or tests/unit/</text>
+
+          <line x1="370" y1="50" x2="110" y2="78" stroke="#4338ca" stroke-width="1.5" marker-end="url(#place-arrow)"/>
+          <line x1="370" y1="50" x2="310" y2="78" stroke="#4338ca" stroke-width="1.5" marker-end="url(#place-arrow)"/>
+          <line x1="370" y1="50" x2="510" y2="78" stroke="#4338ca" stroke-width="1.5" marker-end="url(#place-arrow)"/>
+          <line x1="370" y1="50" x2="110" y2="168" stroke="#4338ca" stroke-width="1.5" marker-end="url(#place-arrow)"/>
+          <line x1="370" y1="50" x2="310" y2="168" stroke="#4338ca" stroke-width="1.5" marker-end="url(#place-arrow)"/>
+          <line x1="370" y1="50" x2="510" y2="168" stroke="#4338ca" stroke-width="1.5" marker-end="url(#place-arrow)"/>
+          <line x1="370" y1="50" x2="110" y2="258" stroke="#4338ca" stroke-width="1.5" marker-end="url(#place-arrow)"/>
+          <line x1="370" y1="50" x2="310" y2="258" stroke="#4338ca" stroke-width="1.5" marker-end="url(#place-arrow)"/>
+          <line x1="370" y1="50" x2="510" y2="258" stroke="#4338ca" stroke-width="1.5" marker-end="url(#place-arrow)"/>
+        </svg>
+        <figcaption>図2. ファイル配置の判断フロー</figcaption>
+      </figure>
+
+      <h3>6.2 迷いやすいケースの判断例</h3>
+      <table>
+        <thead><tr><th>ケース</th><th>正解の置き場所</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>「プレビューカード」は HomeView でしか使わない</td>
+            <td><code>src/views/HomeView/_PreviewCard.tsx</code>（private サブコンポーネント扱い）</td>
+          </tr>
+          <tr>
+            <td>「Button」コンポーネント</td>
+            <td><code>src/components/Button/</code>（全画面で使うため）</td>
+          </tr>
+          <tr>
+            <td>共有 URL の解析は domain？ utils？</td>
+            <td>業務知識（Drive の URL 形式）を持つので <code>src/domain/UrlParser.ts</code></td>
+          </tr>
+          <tr>
+            <td>指数バックオフは utils？ infra？</td>
+            <td>API 非依存の汎用関数 → <code>src/utils/backoff.ts</code>。<code>DriveApiClient</code> が内部で呼ぶ</td>
+          </tr>
+          <tr>
+            <td>Drive のレスポンス型</td>
+            <td><code>src/infra/driveTypes.ts</code>（infra 内で閉じる）</td>
+          </tr>
+          <tr>
+            <td><code>CopyJob</code>（複数層が参照）</td>
+            <td><code>src/types/index.ts</code></td>
+          </tr>
+          <tr>
+            <td>新しい画面を追加するとき</td>
+            <td>1) ui-specification.html に SCR-005-xxx として追加 → 2) <code>src/views/XxxView/</code> 作成 → 3) <code>src/routes/router.tsx</code> に登録</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="naming-rules">
+      <h2>7. 命名規則</h2>
+      <table>
+        <thead><tr><th>対象</th><th>規則</th><th>例</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>ディレクトリ（コンポーネント）</td>
+            <td>PascalCase</td>
+            <td><code>HomeView/</code>, <code>ConfirmDialog/</code></td>
+          </tr>
+          <tr>
+            <td>ディレクトリ（カテゴリ）</td>
+            <td>kebab-case 単数</td>
+            <td><code>views/</code>, <code>state/</code>, <code>infra/</code></td>
+          </tr>
+          <tr>
+            <td>React コンポーネントファイル</td>
+            <td>PascalCase + .tsx</td>
+            <td><code>HomeView.tsx</code></td>
+          </tr>
+          <tr>
+            <td>ロジック / ユーティリティ</td>
+            <td>camelCase + .ts（クラス的なら PascalCase + .ts）</td>
+            <td><code>backoff.ts</code>, <code>CopyEngine.ts</code></td>
+          </tr>
+          <tr>
+            <td>CSS Module</td>
+            <td>同名 + .module.css</td>
+            <td><code>HomeView.module.css</code></td>
+          </tr>
+          <tr>
+            <td>テストファイル</td>
+            <td>同名 + .test.ts(x)</td>
+            <td><code>HomeView.test.tsx</code>, <code>UrlParser.test.ts</code></td>
+          </tr>
+          <tr>
+            <td>E2E スペック</td>
+            <td>kebab-case + .spec.ts</td>
+            <td><code>happy-path.spec.ts</code></td>
+          </tr>
+          <tr>
+            <td>private サブコンポーネント</td>
+            <td>先頭アンダースコア</td>
+            <td><code>_PreviewCard.tsx</code></td>
+          </tr>
+          <tr>
+            <td>型（ドメインエンティティ）</td>
+            <td>PascalCase（<code>type</code> または <code>interface</code>）</td>
+            <td><code>CopyJob</code>, <code>FolderMetadata</code></td>
+          </tr>
+          <tr>
+            <td>定数</td>
+            <td>UPPER_SNAKE_CASE</td>
+            <td><code>MAX_RETRIES</code>, <code>BACKOFF_INITIAL_MS</code></td>
+          </tr>
+          <tr>
+            <td>環境変数</td>
+            <td><code>VITE_</code> プレフィックス + UPPER_SNAKE_CASE</td>
+            <td><code>VITE_GOOGLE_CLIENT_ID</code></td>
+          </tr>
+          <tr>
+            <td>ステアリングディレクトリ</td>
+            <td><code>YYYYMMDD-開発タイトル</code>（小文字英 + ハイフン）</td>
+            <td><code>20260528-initial-implementation</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p class="callout-warn">画面 ID（<code>SCR-001-home</code>）と用語（<code>複製先フォルダ</code> 等）の命名整合は <a href="ui-specification.html#glossary-mapping">UI 仕様書 §7</a> および <a href="glossary.html">用語集</a> を正とする。</p>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <p>関連ドキュメント: <a href="architecture.html">技術仕様</a> / <a href="functional-design.html">機能設計</a> / <a href="development-guidelines.html">開発ガイドライン</a></p>
+  </footer>
+
+</body>
+</html>

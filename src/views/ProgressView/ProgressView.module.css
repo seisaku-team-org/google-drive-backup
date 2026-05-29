@@ -1,0 +1,109 @@
+.root {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.heading {
+  font-size: 1.375rem;
+  margin: 0 0 0.5rem;
+}
+
+.sub {
+  color: var(--color-text-muted);
+  margin: 0 0 1.5rem;
+}
+
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.progressLabel {
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.currentLabel {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin: 0 0 0.25rem;
+}
+
+.currentItem {
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  margin: 0 0 1.5rem;
+  word-break: break-all;
+}
+
+.countingBlock {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.countingText {
+  font-size: 1.125rem;
+}
+
+.countingText strong {
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.counters {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.counter {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+}
+
+.counterLabel {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.counterValue {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-top: 0.25rem;
+}
+
+.success {
+  color: var(--color-success);
+}
+.warning {
+  color: var(--color-warning);
+}
+
+.actions {
+  margin-bottom: 1rem;
+}
+
+.notice {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 600px) {
+  .counters {
+    grid-template-columns: 1fr;
+  }
+}

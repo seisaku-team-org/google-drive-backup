@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>開発ガイドライン — Google Drive バックアップ</title>
+  <link rel="stylesheet" href="assets/design-system.css">
+</head>
+<body>
+
+  <header class="doc-header">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <h1>開発ガイドライン</h1>
+    <p class="doc-meta">Google Drive バックアップ ／ 最終更新: 2026-05-28 ／ ステータス: ドラフト</p>
+  </header>
+
+  <details class="toc" open>
+    <summary>目次</summary>
+    <nav aria-label="目次">
+      <ol>
+        <li><a href="#coding-standards">1. コーディング規約</a></li>
+        <li><a href="#naming-in-code">2. コード内の命名規則</a></li>
+        <li><a href="#styling">3. スタイリング規約</a></li>
+        <li><a href="#testing">4. テスト規約</a></li>
+        <li><a href="#git">5. Git 規約</a></li>
+        <li><a href="#docs-sync">6. ドキュメント保守ルール</a></li>
+        <li><a href="#review">7. レビュー観点</a></li>
+      </ol>
+    </nav>
+  </details>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section id="coding-standards">
+      <h2>1. コーディング規約</h2>
+
+      <h3>1.1 TypeScript</h3>
+      <ul>
+        <li><strong>strict モード必須</strong>。<code>tsconfig.json</code> の <code>strict: true</code> / <code>noUncheckedIndexedAccess: true</code> を変更しない</li>
+        <li><strong><code>any</code> 禁止</strong>。型が分からない外部値は <code>unknown</code> で受けてから型ガードで絞る</li>
+        <li><strong><code>as</code> キャストは最終手段</strong>。<code>!</code>（non-null assertion）も同様。使う場合は近くにコメントで根拠を残す</li>
+        <li><strong>型は <code>type</code> を基本</strong>。<code>interface</code> は拡張・宣言マージが必要なときだけ使う</li>
+        <li><strong>列挙は <code>const</code> 由来のユニオン型</strong>を優先（<code>enum</code> は使わない）：
+          <pre><code>// Good
+export type JobStatus = 'idle' | 'preparing' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
+
+// 避ける
+export enum JobStatus { Idle, Preparing, /* ... */ }</code></pre>
+        </li>
+        <li>型定義は <a href="repository-structure.html#src-structure">repository-structure.html §3</a> のルールに従い、複数層で使う型のみ <code>src/types/</code> に置く</li>
+      </ul>
+
+      <h3>1.2 React コンポーネント</h3>
+      <ul>
+        <li><strong>関数コンポーネントのみ</strong>。class コンポーネントは使わない</li>
+        <li><strong>Props は <code>type Props = { ... }</code> で型付け</strong>。<code>React.FC</code> は使わない（暗黙の children が混じるため）</li>
+        <li><strong>1 ファイル 1 公開コンポーネント</strong>を原則とする。同ファイル内の補助コンポーネントは先頭アンダースコアで private を示す</li>
+        <li><strong>JSX 内のロジックは控えめに</strong>。条件分岐が 2 段を超えそうなら関数に切り出す</li>
+        <li>例：
+          <pre><code>// HomeView.tsx
+import styles from './HomeView.module.css';
+
+type Props = {
+  onStart: (folderId: string) => void;
+};
+
+export function HomeView({ onStart }: Props) {
+  // hooks は先頭にまとめる
+  const [url, setUrl] = useState('');
+  // ...
+  return (
+    &lt;main className={styles.root}&gt;
+      &lt;h2&gt;複製したいフォルダを指定してください&lt;/h2&gt;
+      {/* ... */}
+    &lt;/main&gt;
+  );
+}</code></pre>
+        </li>
+      </ul>
+
+      <h3>1.3 hooks の使い方</h3>
+      <ul>
+        <li><strong>hooks のルール（呼び出し順固定 / 条件付き呼び出し禁止）を厳守</strong>。<code>eslint-plugin-react-hooks</code> の警告は無視しない</li>
+        <li><strong>カスタムフックは <code>use</code> プレフィックス</strong>。例: <code>useCopyJob()</code>, <code>useAuth()</code></li>
+        <li><strong><code>useEffect</code> の乱用を避ける</strong>。「描画後の同期処理」「外部システムへの subscribe」など本来の用途以外には使わない。Props の派生値は計算式で表現する</li>
+        <li><strong>非同期処理</strong>は <code>useEffect</code> 内で <code>async</code> IIFE を使い、unmount 時のキャンセル可能性を考慮する</li>
+      </ul>
+
+      <h3>1.4 状態管理（useReducer + Context）</h3>
+      <pre><code>// src/state/AppContext.tsx
+const AppStateContext = createContext&lt;RootState | null&gt;(null);
+const AppDispatchContext = createContext&lt;Dispatch&lt;Action&gt; | null&gt;(null);
+
+export function AppProvider({ children }: { children: ReactNode }) {
+  const [state, dispatch] = useReducer(rootReducer, initialState);
+  return (
+    &lt;AppStateContext.Provider value={state}&gt;
+      &lt;AppDispatchContext.Provider value={dispatch}&gt;
+        {children}
+      &lt;/AppDispatchContext.Provider&gt;
+    &lt;/AppStateContext.Provider&gt;
+  );
+}
+
+export function useAppState() {
+  const ctx = useContext(AppStateContext);
+  if (!ctx) throw new Error('useAppState must be used within AppProvider');
+  return ctx;
+}
+
+export function useAppDispatch() {
+  const ctx = useContext(AppDispatchContext);
+  if (!ctx) throw new Error('useAppDispatch must be used within AppProvider');
+  return ctx;
+}</code></pre>
+      <ul>
+        <li><strong>State と Dispatch は別の Context に分ける</strong>（dispatch しか使わない子コンポーネントの不要な再描画を防ぐ）</li>
+        <li><strong>Action は discriminated union</strong> で定義する：
+          <pre><code>type Action =
+  | { type: 'auth/signInSucceeded'; payload: { token: string; user: UserInfo } }
+  | { type: 'auth/signOut' }
+  | { type: 'job/start'; payload: { sourceFolderId: string } }
+  // ...</code></pre>
+        </li>
+      </ul>
+
+      <h3>1.5 エラーハンドリング</h3>
+      <ul>
+        <li><strong>独自エラークラスは最小限</strong>。<code>DriveApiError</code> 1 種で HTTP ステータスと <code>reason</code> を保持し、呼び出し側がスイッチする</li>
+        <li><strong>try/catch は最も近い境界で</strong>。CopyEngine の各アイテム処理単位で catch し、スキップ判定する</li>
+        <li><strong><code>throw new Error('something')</code> は禁止</strong>。最低でも <code>throw new Error(\`copy failed: \${item.id}\`)</code> のように識別情報を含める</li>
+        <li><strong>ユーザーに見せる文言とログ用文言を分離</strong>。エラーオブジェクトに <code>userMessage</code> を持たせるか、変換層で別関数にする</li>
+      </ul>
+
+      <h3>1.6 副作用の置き場所</h3>
+      <table>
+        <thead><tr><th>副作用</th><th>置き場所</th></tr></thead>
+        <tbody>
+          <tr><td><code>fetch</code> / Drive API 呼び出し</td><td><code>src/infra/DriveApiClient.ts</code> のみ</td></tr>
+          <tr><td>OAuth フロー（GIS）</td><td><code>src/infra/AuthClient.ts</code> のみ</td></tr>
+          <tr><td>クリップボード書き込み</td><td><code>src/utils/</code> または直接 view から</td></tr>
+          <tr><td><code>window.open</code>（複製先リンクを別タブで）</td><td>view 内で OK</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="naming-in-code">
+      <h2>2. コード内の命名規則</h2>
+      <p>ファイル・ディレクトリ命名は <a href="repository-structure.html#naming-rules">repository-structure.html §7</a> 参照。本節はコード内識別子の命名を扱う。</p>
+
+      <table>
+        <thead><tr><th>対象</th><th>規則</th><th>例</th></tr></thead>
+        <tbody>
+          <tr><td>変数 / 引数</td><td>camelCase</td><td><code>folderId</code>, <code>sourceParents</code></td></tr>
+          <tr><td>関数 / メソッド</td><td>camelCase、動詞で始める</td><td><code>parseFolderUrl()</code>, <code>copyFolder()</code></td></tr>
+          <tr><td>boolean</td><td><code>is / has / can / should</code> 接頭辞</td><td><code>isExpired</code>, <code>hasParents</code>, <code>canRetry</code></td></tr>
+          <tr><td>React コンポーネント</td><td>PascalCase</td><td><code>HomeView</code>, <code>PreviewCard</code></td></tr>
+          <tr><td>カスタムフック</td><td>camelCase、<code>use</code> プレフィックス</td><td><code>useCopyJob</code>, <code>useAuth</code></td></tr>
+          <tr><td>型 / インターフェース</td><td>PascalCase（接尾辞 <code>Type</code> / <code>Interface</code> はつけない）</td><td><code>CopyJob</code>, <code>FolderMetadata</code></td></tr>
+          <tr><td>定数（モジュールスコープ）</td><td>UPPER_SNAKE_CASE</td><td><code>MAX_RETRIES</code>, <code>BACKOFF_INITIAL_MS</code></td></tr>
+          <tr><td>列挙的ユニオン型のメンバー</td><td>kebab-case 文字列（ドメインに応じて）</td><td><code>'in_progress'</code>, <code>'cancelling'</code></td></tr>
+          <tr><td>イベント名（Action type）</td><td>kebab/snake + <code>/</code> 区切りの "slice/event" 形式</td><td><code>'auth/signInSucceeded'</code>, <code>'job/itemFinished'</code></td></tr>
+          <tr><td>CSS Modules のクラス</td><td>camelCase</td><td><code>previewCard</code>, <code>actionButton</code></td></tr>
+          <tr><td>環境変数</td><td><code>VITE_</code> プレフィックス + UPPER_SNAKE_CASE</td><td><code>VITE_GOOGLE_CLIENT_ID</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>2.1 ドメイン用語の整合</h3>
+      <p>コード内で使うドメイン用語の英語表記は <a href="glossary.html">用語集</a> および <a href="ui-specification.html#glossary-mapping">UI 仕様書 §7</a> と整合させる。例：</p>
+      <table>
+        <thead><tr><th>ドメイン用語</th><th>変数名で使うべき英語</th><th>避ける表現</th></tr></thead>
+        <tbody>
+          <tr><td>複製先フォルダ</td><td><code>destination</code>, <code>destinationFolderId</code></td><td><code>dest</code>, <code>target</code>, <code>newFolder</code></td></tr>
+          <tr><td>複製元フォルダ</td><td><code>source</code>, <code>sourceFolderId</code></td><td><code>src</code>, <code>original</code></td></tr>
+          <tr><td>スキップ</td><td><code>skipped</code>, <code>skipReason</code></td><td><code>failed</code>, <code>error</code>（スキップ理由はエラーと呼ばない）</td></tr>
+          <tr><td>中止</td><td><code>cancel</code>, <code>cancelRequested</code></td><td><code>abort</code>, <code>stop</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="styling">
+      <h2>3. スタイリング規約</h2>
+
+      <h3>3.1 CSS Modules の使い方</h3>
+      <ul>
+        <li><strong>コンポーネント単位でスコープ化</strong>。<code>HomeView.module.css</code> のクラスは <code>styles.previewCard</code> で参照</li>
+        <li><strong>1 コンポーネント = 1 module ファイル</strong>。グローバル CSS は <code>src/styles/global.css</code> と <code>tokens.css</code> のみ</li>
+        <li><strong>クラス名は camelCase</strong>。CSS Modules では JS 側で <code>styles.foo-bar</code> が書きづらいため</li>
+      </ul>
+
+      <h3>3.2 デザイントークンの使い方</h3>
+      <ul>
+        <li>色・スペーシング・角丸はすべて <strong>CSS カスタムプロパティ経由</strong>で参照する（直接の HEX 値・px 値は書かない）</li>
+        <li>トークン定義は <code>src/styles/tokens.css</code> に置き、<code>docs/assets/design-system.css</code> と整合させる</li>
+        <li>例：
+          <pre><code>/* HomeView.module.css */
+.previewCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+}
+
+.actionButton {
+  background: var(--color-accent);
+  color: #fff;
+}</code></pre>
+        </li>
+      </ul>
+
+      <h3>3.3 レスポンシブ</h3>
+      <ul>
+        <li>モバイルファースト。デフォルトはモバイルレイアウト、<code>@media (min-width: 768px)</code> で PC レイアウト</li>
+        <li>ブレークポイント: 768px（タブレット以上 = PC レイアウト）。それ以上の細かい刻みは MVP では使わない</li>
+      </ul>
+
+      <h3>3.4 アクセシビリティに直結するスタイル</h3>
+      <ul>
+        <li><strong>フォーカスリングを消さない</strong>。<code>:focus-visible</code> でアウトラインを明示</li>
+        <li><strong>テキストコントラスト 4.5:1 以上</strong>を <code>--color-text</code> / <code>--color-text-muted</code> / <code>--color-bg</code> の組み合わせで担保。新しい色を導入する場合は事前にコントラスト計算する</li>
+        <li><strong>アニメーションは <code>prefers-reduced-motion</code> を尊重</strong></li>
+      </ul>
+
+      <h3>3.5 やってはいけないこと</h3>
+      <ul>
+        <li><code>!important</code> の濫用（どうしても必要な場合はコメントで理由を残す）</li>
+        <li>インラインスタイル（<code>style={{ ... }}</code>）の常用。動的に変わるサイズ・位置などに限定する</li>
+        <li>グローバルセレクタ（<code>body</code>, <code>h1</code> 等）への上書きを CSS Modules 内で行う（global.css 経由のみ）</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="testing">
+      <h2>4. テスト規約</h2>
+
+      <h3>4.1 何をテストするか</h3>
+      <table>
+        <thead><tr><th>対象</th><th>テスト方針</th><th>レイヤー</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>UrlParser</code></td>
+            <td>5 形式以上の入力 / 不正入力 / ID 単独入力をカバー</td>
+            <td>Unit（Vitest）</td>
+          </tr>
+          <tr>
+            <td><code>CopyEngine</code></td>
+            <td>DriveApiClient をモックして、再帰トラバース / 並列度 / cancel / 個別エラースキップ を検証</td>
+            <td>Unit</td>
+          </tr>
+          <tr>
+            <td><code>ReportBuilder</code></td>
+            <td>成功・スキップ件数の集計、所要時間、プレーンテキスト変換</td>
+            <td>Unit</td>
+          </tr>
+          <tr>
+            <td>各 View</td>
+            <td>状態（空 / 読込中 / エラー / 成功）ごとの描画 ／ 操作イベントが正しい dispatch を投げる</td>
+            <td>Component（Vitest + Testing Library）</td>
+          </tr>
+          <tr>
+            <td>ハッピーパス全体</td>
+            <td>ログイン省略のスタブ環境で、URL 入力 → プレビュー → 複製 → レポートの 1 本道</td>
+            <td>E2E（Playwright）</td>
+          </tr>
+          <tr>
+            <td><code>backoff</code> / <code>semaphore</code></td>
+            <td>境界値（最大リトライ達成 / 並列度上限）と happy path</td>
+            <td>Unit</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>4.2 何をテストしないか</h3>
+      <ul>
+        <li><strong>Drive API そのもの</strong>（Google が責任を持つ）— 本番 API へは CI からアクセスしない</li>
+        <li><strong>React / React Router の動作</strong>（フレームワーク自体のテスト）</li>
+        <li><strong>CSS の見た目</strong>（ビジュアル回帰テストは MVP 対象外）</li>
+        <li><strong>カバレッジ 100%</strong> を目指さない。重要パスを優先する</li>
+      </ul>
+
+      <h3>4.3 書き方</h3>
+      <ul>
+        <li><strong>AAA パターン</strong>（Arrange / Act / Assert）でブロックを分ける</li>
+        <li><strong>1 テスト 1 アサーション</strong>を原則とする（複数の確認をしたい場合は describe で束ねて it を分ける）</li>
+        <li><strong>テスト名は日本語可</strong>。「何が起きたら何になるか」を文として書く</li>
+        <li>例：
+          <pre><code>describe('UrlParser', () =&gt; {
+  it('共有 URL から folderId を抽出する', () =&gt; {
+    const result = parseFolderUrl('https://drive.google.com/drive/folders/1AbC');
+    expect(result).toEqual({ ok: true, folderId: '1AbC' });
+  });
+
+  it('フォルダではないリンクは NOT_A_FOLDER を返す', () =&gt; {
+    const result = parseFolderUrl('https://drive.google.com/file/d/1AbC/view');
+    expect(result).toEqual({ ok: false, reason: 'NOT_A_FOLDER' });
+  });
+});</code></pre>
+        </li>
+      </ul>
+
+      <h3>4.4 モックの方針</h3>
+      <ul>
+        <li><strong>infra 層のみモック対象</strong>。domain / view のテストでは <code>DriveApiClient</code> や <code>AuthClient</code> を <code>vi.fn()</code> で差し替える</li>
+        <li>モックは <strong>各テスト内で定義</strong>。グローバルモックは避ける（テスト間の汚染を防ぐ）</li>
+        <li>fake server（Playwright の <code>page.route</code>）は E2E でのみ使用</li>
+      </ul>
+
+      <h3>4.5 実行</h3>
+      <ul>
+        <li>ローカル: <code>npm run test</code>（Vitest watch）／ <code>npm run test:e2e</code></li>
+        <li>CI: PR で <code>typecheck + lint + test</code> を必須化、E2E は main マージ時のみ</li>
+        <li>失敗したテストを <code>.skip</code> / <code>.todo</code> で放置しない。原因を直すか、削除する</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="git">
+      <h2>5. Git 規約</h2>
+
+      <h3>5.1 ブランチ戦略</h3>
+      <ul>
+        <li><strong>main</strong>: 常にデプロイ可能な状態。直接 push 禁止</li>
+        <li><strong>feature ブランチ</strong>: <code>feat/&lt;短い説明&gt;</code> 形式。例: <code>feat/url-parser</code>, <code>feat/copy-engine</code></li>
+        <li><strong>fix ブランチ</strong>: <code>fix/&lt;短い説明&gt;</code> 形式。例: <code>fix/folder-name-encoding</code></li>
+        <li><strong>chore ブランチ</strong>: 設定・依存更新など。例: <code>chore/upgrade-vite</code></li>
+        <li>ブランチ寿命は短く（数日以内）。長期化したら小さく分割する</li>
+      </ul>
+
+      <h3>5.2 コミットメッセージ（Conventional Commits）</h3>
+      <p>形式: <code>&lt;type&gt;(&lt;scope&gt;): &lt;subject&gt;</code></p>
+      <table>
+        <thead><tr><th>type</th><th>用途</th><th>例</th></tr></thead>
+        <tbody>
+          <tr><td>feat</td><td>新機能</td><td><code>feat(copy-engine): 中止フラグを各ループ前にチェックする</code></td></tr>
+          <tr><td>fix</td><td>バグ修正</td><td><code>fix(url-parser): 末尾スラッシュ付き URL を許容する</code></td></tr>
+          <tr><td>refactor</td><td>挙動を変えない整理</td><td><code>refactor(state): authSlice を独立ファイルに分離</code></td></tr>
+          <tr><td>test</td><td>テストの追加・修正</td><td><code>test(copy-engine): cancel 時のスキップ件数を検証</code></td></tr>
+          <tr><td>docs</td><td>ドキュメント</td><td><code>docs(ui-spec): SCR-002-home の状態定義を追記</code></td></tr>
+          <tr><td>style</td><td>整形のみ（挙動変更なし）</td><td><code>style: prettier 実行</code></td></tr>
+          <tr><td>chore</td><td>設定・依存更新</td><td><code>chore: vite を 5.2 に更新</code></td></tr>
+          <tr><td>ci</td><td>CI 設定</td><td><code>ci: PR で typecheck を必須化</code></td></tr>
+        </tbody>
+      </table>
+      <ul>
+        <li><strong>subject は日本語でよい</strong>。50 文字以内</li>
+        <li>本文（body）が必要なら 1 行空けて記述。<strong>なぜそうしたか</strong>を書く（何をしたかは差分から分かる）</li>
+        <li>1 コミット = 1 論理的変更。混ぜない</li>
+      </ul>
+
+      <h3>5.3 PR 規約</h3>
+      <ul>
+        <li>PR タイトル: コミットメッセージと同形式（<code>&lt;type&gt;(&lt;scope&gt;): &lt;subject&gt;</code>）</li>
+        <li>PR 本文には以下を含める：
+          <ul>
+            <li><strong>目的</strong>: 何のための変更か（リンク: <code>.steering/&lt;date&gt;-&lt;title&gt;/</code>）</li>
+            <li><strong>変更内容</strong>: 主要な変更点を箇条書き</li>
+            <li><strong>動作確認</strong>: 手動 / 自動の確認内容</li>
+            <li><strong>影響範囲</strong>: 他機能への影響</li>
+          </ul>
+        </li>
+        <li><strong>CI green 必須</strong>。typecheck / lint / unit test が失敗している PR はマージしない</li>
+        <li><strong>1 PR の差分は概ね 400 行以内</strong>を目安にする。それを超えるなら分割を検討</li>
+        <li>マージ方式は <strong>Squash and Merge</strong>（main の履歴を 1 PR 1 コミットに圧縮）</li>
+      </ul>
+
+      <h3>5.4 .gitignore に必ず含める</h3>
+      <ul>
+        <li><code>node_modules/</code></li>
+        <li><code>dist/</code></li>
+        <li><code>.env</code>, <code>.env.local</code>, <code>.env.*.local</code></li>
+        <li><code>test-results/</code>（Playwright）</li>
+        <li><code>coverage/</code>（Vitest）</li>
+        <li><code>.vscode/settings.json</code>（個人設定のみ。共有設定は別途）</li>
+        <li>OS 固有: <code>.DS_Store</code>, <code>Thumbs.db</code></li>
+      </ul>
+
+      <h3>5.5 機密情報の取り扱い</h3>
+      <ul>
+        <li><strong>OAuth クライアント ID やシークレットを <code>git</code> に絶対コミットしない</strong>。GitHub Secrets と <code>.env.local</code>（gitignore 済み）で管理</li>
+        <li>誤って push した場合は速やかに Google Cloud Console で当該認証情報を破棄し、新しいものを発行する</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="docs-sync">
+      <h2>6. ドキュメント保守ルール</h2>
+
+      <h3>6.1 ドキュメントとコードの同時更新</h3>
+      <p>仕様に影響する変更は <strong>同じ PR でドキュメントも更新</strong>する。コード PR と docs PR を分けない（乖離を防ぐ）。</p>
+      <table>
+        <thead><tr><th>コード変更の種類</th><th>同時更新が必要なドキュメント</th></tr></thead>
+        <tbody>
+          <tr><td>新画面追加 / 既存画面の UI 変更</td><td><code>docs/ui-specification.html</code></td></tr>
+          <tr><td>新しい状態 / アクションの追加</td><td><code>docs/functional-design.html</code> §5</td></tr>
+          <tr><td>新エンドポイント呼び出し</td><td><code>docs/functional-design.html</code> §10</td></tr>
+          <tr><td>新規依存ライブラリ</td><td><code>docs/architecture.html</code> §8</td></tr>
+          <tr><td>新規ディレクトリ / 命名の変更</td><td><code>docs/repository-structure.html</code></td></tr>
+          <tr><td>新規用語の発生</td><td><code>docs/glossary.html</code> + <code>docs/ui-specification.html</code> §7</td></tr>
+        </tbody>
+      </table>
+
+      <h3>6.2 ステアリングディレクトリの運用</h3>
+      <ul>
+        <li>各作業の前に <code>.steering/YYYYMMDD-開発タイトル/</code> を作成し、<code>requirements.html</code> / <code>design.html</code> / <code>tasklist.md</code> を順に承認を得て作成（CLAUDE.md「機能追加・修正時の手順」参照）</li>
+        <li><strong>UI 影響セクション必須</strong>: <code>design.html</code> に「UI 変更あり: 詳細」または「UI 変更なし」を明示する</li>
+        <li>作業完了後もディレクトリは削除しない（履歴として残す）</li>
+      </ul>
+
+      <h3>6.3 AI コーディング開始ゲート</h3>
+      <p>CLAUDE.md の「AIコーディング開始ゲート」のチェックリストを満たすまで実装コードを編集しない。docs / steering の編集は許可される。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="review">
+      <h2>7. レビュー観点</h2>
+      <p>PR レビュー時に確認するチェックリスト。</p>
+
+      <h3>7.1 ドメイン整合</h3>
+      <ul>
+        <li>[ ] 変更が UI 仕様書 / 機能設計書と矛盾していないか</li>
+        <li>[ ] 用語集と異なる呼称を導入していないか</li>
+        <li>[ ] 「複製先 / 複製元」「スキップ / 中止」等を取り違えていないか</li>
+      </ul>
+
+      <h3>7.2 設計健全性</h3>
+      <ul>
+        <li>[ ] レイヤー依存方向に違反していないか（views → state → domain → infra）</li>
+        <li>[ ] <code>fetch</code> や <code>window.google</code> を infra 層以外で直接触っていないか</li>
+        <li>[ ] 純粋関数として書けるものに無用な副作用が混じっていないか</li>
+      </ul>
+
+      <h3>7.3 安全性</h3>
+      <ul>
+        <li>[ ] 元フォルダ・元ファイルへの書き込み / 削除操作が含まれていないか</li>
+        <li>[ ] OAuth スコープが不必要に拡張されていないか</li>
+        <li>[ ] トークンが <code>localStorage</code> / Cookie に書き出されていないか</li>
+      </ul>
+
+      <h3>7.4 アクセシビリティ</h3>
+      <ul>
+        <li>[ ] フォーカスが操作可能か（キーボードのみで使えるか）</li>
+        <li>[ ] エラーメッセージが <code>aria-live</code> に出ているか</li>
+        <li>[ ] 色だけで意味を伝えていないか（アイコン・文言の併用）</li>
+      </ul>
+
+      <h3>7.5 テスト</h3>
+      <ul>
+        <li>[ ] 新規ロジックにユニットテストがついているか</li>
+        <li>[ ] エラー / スキップ系の分岐がカバーされているか</li>
+        <li>[ ] <code>.skip</code> / <code>.todo</code> が残っていないか</li>
+      </ul>
+
+      <h3>7.6 ドキュメント</h3>
+      <ul>
+        <li>[ ] 仕様に影響する変更は対応ドキュメントを同時更新したか</li>
+        <li>[ ] 新規用語があれば glossary に追加したか</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <p>関連ドキュメント: <a href="architecture.html">技術仕様</a> / <a href="repository-structure.html">リポジトリ構造</a> / <a href="ui-specification.html">UI仕様</a> / <a href="glossary.html">用語集</a></p>
+  </footer>
+
+</body>
+</html>

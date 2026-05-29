@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UI仕様書 — Google Drive バックアップ</title>
+  <link rel="stylesheet" href="assets/design-system.css">
+</head>
+<body>
+
+  <header class="doc-header">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <h1>UI仕様書</h1>
+    <p class="doc-meta">Google Drive バックアップ ／ 最終更新: 2026-05-28（仕様確定アップデート）／ ステータス: ドラフト</p>
+  </header>
+
+  <details class="toc" open>
+    <summary>目次</summary>
+    <nav aria-label="目次">
+      <ol>
+        <li><a href="#design-principles">0. デザイン原則 / トーン</a></li>
+        <li><a href="#screen-list">1. 画面一覧</a></li>
+        <li><a href="#user-flow">2. ユーザーフロー / 画面遷移図</a></li>
+        <li>3. 各画面詳細
+          <ol>
+            <li><a href="#scr-001-login">3.1 SCR-001-login: ログイン</a></li>
+            <li><a href="#scr-002-home">3.2 SCR-002-home: ホーム（URL指定とプレビュー）</a></li>
+            <li><a href="#scr-003-progress">3.3 SCR-003-progress: 複製中（進捗）</a></li>
+            <li><a href="#scr-004-report">3.4 SCR-004-report: 完了レポート</a></li>
+          </ol>
+        </li>
+        <li><a href="#common-components">4. 共通コンポーネント</a></li>
+        <li><a href="#design-tokens">5. デザイントークン</a></li>
+        <li><a href="#offscreen-behaviors">6. 画面外の振る舞い</a></li>
+        <li><a href="#glossary-mapping">7. 用語整合</a></li>
+      </ol>
+    </nav>
+  </details>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section id="design-principles">
+      <h2>0. デザイン原則 / トーン</h2>
+      <ol>
+        <li><strong>「迷わない 1 本道」</strong> — MVP は「ログイン→URL貼付→確認→実行→完了」の単線フロー。分岐は最小限にし、各画面で次に押すべきボタンを 1 つに絞る。</li>
+        <li><strong>「壊さない安心感」</strong> — このツールは元データに書き込まない。画面内に「元フォルダには変更を加えません」と明示する文言を 1 箇所以上配置する。</li>
+        <li><strong>「待ち時間を可視化」</strong> — Drive API は遅い処理がある。空白の待ちを作らない（スピナー＋現在処理中ファイル名＋件数を常時表示）。</li>
+        <li><strong>「失敗をスキップして前に進む」</strong> — 個別エラーで止めない。最後にレポートでまとめて見せる。</li>
+        <li><strong>「PC 中心、モバイルでも動く」</strong> — メイン UX は PC ブラウザ。モバイルでもレイアウト崩れなく動作するが、専用最適化はしない。</li>
+        <li><strong>「日本語、です/ます調」</strong> — 用語は <a href="glossary.html">用語集</a> に従い、UI ラベルと用語集の対応を <a href="#glossary-mapping">7. 用語整合</a> で管理する。</li>
+        <li><strong>「アクセシビリティは最低 WCAG 2.1 AA」</strong> — キーボードのみで全操作可能、コントラスト 4.5:1 以上、フォーカス可視。</li>
+      </ol>
+
+      <h3>0.1 文言トーンの例</h3>
+      <table>
+        <thead>
+          <tr><th>場面</th><th>OK な文言</th><th>NG な文言</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ボタン</td><td>「複製を開始」</td><td>「実行する」「Submit」</td></tr>
+          <tr><td>エラー</td><td>「URL からフォルダ ID を読み取れませんでした。共有 URL を貼り付けたかご確認ください。」</td><td>「Invalid input.」「エラーが発生しました」</td></tr>
+          <tr><td>成功</td><td>「複製が完了しました。複製先フォルダを Drive で開く →」</td><td>「DONE!!」「OK」</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="screen-list">
+      <h2>1. 画面一覧</h2>
+      <p>MVP では下記 4 画面で全フローを構成する。SPA として実装するが、状態遷移は URL ハッシュ（または擬似ルート）で表現可能とする。</p>
+      <table>
+        <thead>
+          <tr><th>画面ID</th><th>画面名</th><th>目的</th><th>URL / ルート</th><th>到達条件</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>SCR-001-login</code></td>
+            <td>ログイン</td>
+            <td>未認証ユーザーに Google ログインを案内する</td>
+            <td><code>/login</code> ／ <code>#login</code></td>
+            <td>トークン未保持 or トークン失効</td>
+          </tr>
+          <tr>
+            <td><code>SCR-002-home</code></td>
+            <td>ホーム（URL指定とプレビュー）</td>
+            <td>複製したいフォルダの共有 URL を受け取り、メタデータを確認させる</td>
+            <td><code>/</code> ／ <code>#home</code></td>
+            <td>認証済みで、複製処理中でない</td>
+          </tr>
+          <tr>
+            <td><code>SCR-003-progress</code></td>
+            <td>複製中（進捗）</td>
+            <td>複製の進捗をリアルタイム表示し、中止操作を提供する</td>
+            <td><code>/progress</code> ／ <code>#progress</code></td>
+            <td>SCR-002-home で「複製を開始」を実行</td>
+          </tr>
+          <tr>
+            <td><code>SCR-004-report</code></td>
+            <td>完了レポート</td>
+            <td>複製結果（成功・スキップ・複製先リンク）を提示する</td>
+            <td><code>/report</code> ／ <code>#report</code></td>
+            <td>SCR-003-progress の処理が完了 or 中止</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="callout-warn">画面IDの連番（001〜004）は欠番が出ても再採番しない。将来画面追加時は 005 から振る。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="user-flow">
+      <h2>2. ユーザーフロー / 画面遷移図</h2>
+
+      <figure>
+        <svg viewBox="0 0 760 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="画面遷移図">
+          <defs>
+            <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#4338ca"/>
+            </marker>
+          </defs>
+
+          <!-- SCR-001-login -->
+          <g>
+            <rect x="40" y="180" width="160" height="80" rx="6" fill="#eef2ff" stroke="#4338ca" stroke-width="1.5"/>
+            <text x="120" y="210" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">SCR-001-login</text>
+            <text x="120" y="232" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">ログイン</text>
+          </g>
+
+          <!-- SCR-002-home -->
+          <g>
+            <rect x="260" y="180" width="180" height="80" rx="6" fill="#eef2ff" stroke="#4338ca" stroke-width="1.5"/>
+            <text x="350" y="210" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">SCR-002-home</text>
+            <text x="350" y="232" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">ホーム（URL/プレビュー）</text>
+          </g>
+
+          <!-- SCR-003-progress -->
+          <g>
+            <rect x="500" y="180" width="160" height="80" rx="6" fill="#eef2ff" stroke="#4338ca" stroke-width="1.5"/>
+            <text x="580" y="210" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">SCR-003-progress</text>
+            <text x="580" y="232" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">複製中（進捗）</text>
+          </g>
+
+          <!-- SCR-004-report -->
+          <g>
+            <rect x="500" y="340" width="160" height="80" rx="6" fill="#eef2ff" stroke="#4338ca" stroke-width="1.5"/>
+            <text x="580" y="370" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">SCR-004-report</text>
+            <text x="580" y="392" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">完了レポート</text>
+          </g>
+
+          <!-- Start indicator -->
+          <circle cx="20" cy="220" r="6" fill="#0f172a"/>
+          <text x="20" y="206" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">開始</text>
+          <line x1="26" y1="220" x2="38" y2="220" stroke="#4338ca" stroke-width="2" marker-end="url(#flow-arrow)"/>
+
+          <!-- login -> home -->
+          <line x1="200" y1="220" x2="258" y2="220" stroke="#4338ca" stroke-width="2" marker-end="url(#flow-arrow)"/>
+          <text x="229" y="210" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">認証成功</text>
+
+          <!-- home -> progress -->
+          <line x1="440" y1="220" x2="498" y2="220" stroke="#4338ca" stroke-width="2" marker-end="url(#flow-arrow)"/>
+          <text x="469" y="210" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">「複製を開始」</text>
+
+          <!-- progress -> report -->
+          <line x1="580" y1="260" x2="580" y2="338" stroke="#4338ca" stroke-width="2" marker-end="url(#flow-arrow)"/>
+          <text x="650" y="300" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">完了 / 中止</text>
+
+          <!-- report -> home -->
+          <path d="M 500 380 Q 360 380 350 260" fill="none" stroke="#4338ca" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#flow-arrow)"/>
+          <text x="380" y="395" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">「新しい複製を始める」</text>
+
+          <!-- home -> login (logout) -->
+          <path d="M 260 200 Q 230 130 200 200" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#flow-arrow)"/>
+          <text x="230" y="115" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">ログアウト</text>
+
+          <!-- progress -> home (cancel without progress) - not applicable per requirements; cancel goes to report -->
+
+          <!-- token expired anywhere -> login -->
+          <path d="M 580 180 Q 580 60 120 60 L 120 178" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#flow-arrow)"/>
+          <text x="350" y="50" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">トークン失効（どの画面からでも）</text>
+        </svg>
+        <figcaption>図1. 画面遷移図（実線=主フロー、点線=補助フロー）</figcaption>
+      </figure>
+
+      <h3>2.1 主フロー（ハッピーパス）</h3>
+      <ol>
+        <li>SCR-001-login で「Google でログイン」を押す → OAuth → 認証成功で SCR-002-home へ</li>
+        <li>SCR-002-home で複製したいフォルダの共有 URL を貼り付け → 「フォルダ情報を取得」 → プレビュー表示</li>
+        <li>プレビュー内容を確認し「複製を開始」 → SCR-003-progress へ</li>
+        <li>進捗を見ながら完了を待つ → 自動的に SCR-004-report へ</li>
+        <li>レポートで複製先フォルダを Drive で開くか、「新しい複製を始める」で SCR-002-home に戻る</li>
+      </ol>
+
+      <h3>2.2 補助フロー</h3>
+      <ul>
+        <li><strong>ログアウト</strong>: 任意の画面のヘッダーから実行可能。SCR-001-login に戻る（複製処理中は確認ダイアログを出す）</li>
+        <li><strong>トークン失効</strong>: API 呼び出しで 401 を受けたら自動的に SCR-001-login に戻り、トーストで通知</li>
+        <li><strong>中止</strong>: SCR-003-progress で「中止」を押すと、現在処理中のアイテムを完了してから停止し SCR-004-report へ</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- 3.1 SCR-001-login -->
+    <section id="scr-001-login">
+      <h2>3.1 SCR-001-login: ログイン</h2>
+
+      <h3>3.1.1 目的</h3>
+      <p>未認証ユーザーに Google アカウントでのログインを促し、本アプリで Drive API を利用する許可を得る。</p>
+
+      <h3>3.1.2 ワイヤフレーム</h3>
+      <figure class="wireframe">
+        <figcaption>図2. SCR-001-login（左: PC、右: モバイル）</figcaption>
+        <div class="wireframe-grid two-up">
+          <!-- PC -->
+          <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ログイン画面 PC ワイヤフレーム">
+            <rect x="0" y="0" width="600" height="400" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="0" y="0" width="600" height="48" fill="#f1f5f9" stroke="#cbd5e1"/>
+            <text x="20" y="30" font-family="sans-serif" font-size="14" font-weight="600" fill="#0f172a">Google Drive バックアップ</text>
+            <text x="300" y="120" text-anchor="middle" font-family="sans-serif" font-size="20" font-weight="600" fill="#0f172a">ようこそ</text>
+            <text x="300" y="150" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#475569">Drive のフォルダを丸ごと複製します。</text>
+            <text x="300" y="170" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#475569">まず Google アカウントでログインしてください。</text>
+            <rect x="200" y="210" width="200" height="44" rx="6" fill="#4338ca"/>
+            <text x="300" y="237" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="600" fill="#fff">Google でログイン</text>
+            <text x="300" y="290" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">※ 本アプリは元フォルダを書き換えません</text>
+            <text x="300" y="370" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#94a3b8">© Google Drive バックアップ ／ 利用規約 ／ プライバシー</text>
+          </svg>
+          <!-- Mobile -->
+          <svg viewBox="0 0 320 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ログイン画面 モバイル ワイヤフレーム">
+            <rect x="0" y="0" width="320" height="540" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="0" y="0" width="320" height="48" fill="#f1f5f9" stroke="#cbd5e1"/>
+            <text x="16" y="30" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">Google Drive バックアップ</text>
+            <text x="160" y="160" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="600" fill="#0f172a">ようこそ</text>
+            <text x="160" y="195" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#475569">Drive のフォルダを丸ごと複製します。</text>
+            <text x="160" y="215" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#475569">まず Google アカウントで</text>
+            <text x="160" y="232" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#475569">ログインしてください。</text>
+            <rect x="40" y="280" width="240" height="48" rx="6" fill="#4338ca"/>
+            <text x="160" y="310" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="600" fill="#fff">Google でログイン</text>
+            <text x="160" y="360" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">※ 元フォルダを書き換えません</text>
+            <text x="160" y="510" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#94a3b8">© Google Drive バックアップ</text>
+          </svg>
+        </div>
+      </figure>
+
+      <h3>3.1.3 UI 要素一覧</h3>
+      <table>
+        <thead>
+          <tr><th>要素名</th><th>型</th><th>役割</th><th>必須/任意</th><th>バリデーション</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ヘッダー（アプリ名）</td><td>テキスト</td><td>ブランディング</td><td>必須</td><td>—</td></tr>
+          <tr><td>ウェルカム見出し</td><td>テキスト (h2)</td><td>状況提示</td><td>必須</td><td>—</td></tr>
+          <tr><td>説明文</td><td>テキスト</td><td>アプリの目的を 1〜2 文で説明</td><td>必須</td><td>—</td></tr>
+          <tr><td>「Google でログイン」ボタン</td><td>ボタン (primary)</td><td>OAuth フローを開始</td><td>必須</td><td>—</td></tr>
+          <tr><td>安全性に関する注記</td><td>テキスト</td><td>「元フォルダを書き換えません」明示</td><td>必須</td><td>—</td></tr>
+          <tr><td>フッター（規約・プライバシーリンク）</td><td>リンク</td><td>法的リンク</td><td>任意（リンク先未整備時はテキストでも可）</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.1.4 状態定義</h3>
+      <table class="ui-state-table">
+        <thead><tr><th>状態</th><th>表示内容</th></tr></thead>
+        <tbody>
+          <tr><td>初期</td><td>ボタンは活性。説明文と安全性注記が見える</td></tr>
+          <tr><td>読込中</td><td>ボタン押下後、ボタン文言を「ログインしています...」に変更し disable。スピナーを併記</td></tr>
+          <tr><td>エラー</td><td>OAuth がキャンセル・拒否された場合: トーストで「ログインがキャンセルされました」を表示し、ボタンは再度活性に戻す</td></tr>
+          <tr><td>成功</td><td>SCR-002-home に遷移するため本画面では成功表示は持たない</td></tr>
+          <tr><td>レスポンシブ（PC ≥ 768px）</td><td>中央寄せ、最大幅 600px のカラム</td></tr>
+          <tr><td>レスポンシブ（モバイル &lt; 768px）</td><td>左右マージン 16px、ボタンは横幅いっぱい</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.1.5 操作とイベント</h3>
+      <table>
+        <thead>
+          <tr><th>操作対象</th><th>操作</th><th>動作</th><th>遷移先</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>「Google でログイン」</td><td>クリック / Enter</td><td>OAuth2 認可フローを開始（ポップアップ or リダイレクト）</td><td>成功時: SCR-002-home ／ 失敗時: 本画面に留まる＋エラートースト</td></tr>
+          <tr><td>規約 / プライバシーリンク</td><td>クリック</td><td>別タブで該当ページを開く</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.1.6 アクセシビリティ</h3>
+      <ul>
+        <li>「Google でログイン」ボタンはネイティブ <code>&lt;button&gt;</code> 要素で実装、Tab フォーカス可能</li>
+        <li>ボタン押下後の状態変化（disable / 文言変更）はスクリーンリーダーに伝わるよう <code>aria-busy="true"</code> を付与</li>
+        <li>背景白 / ボタン背景 #4338ca / ボタン文字白 はコントラスト比 8.6:1（AAA 達成）</li>
+        <li>Enter / Space で同一動作</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- 3.2 SCR-002-home -->
+    <section id="scr-002-home">
+      <h2>3.2 SCR-002-home: ホーム（URL指定とプレビュー）</h2>
+
+      <h3>3.2.1 目的</h3>
+      <p>認証済みユーザーが複製したい Drive フォルダの共有 URL を指定し、フォルダ情報を確認した上で複製を開始する。</p>
+
+      <h3>3.2.2 ワイヤフレーム</h3>
+      <figure class="wireframe">
+        <figcaption>図3. SCR-002-home（プレビュー取得後の状態 ／ PC・モバイル）</figcaption>
+        <div class="wireframe-grid two-up">
+          <!-- PC -->
+          <svg viewBox="0 0 600 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ホーム画面 PC ワイヤフレーム">
+            <rect x="0" y="0" width="600" height="540" fill="#fff" stroke="#cbd5e1"/>
+            <!-- Header -->
+            <rect x="0" y="0" width="600" height="48" fill="#f1f5f9" stroke="#cbd5e1"/>
+            <text x="20" y="30" font-family="sans-serif" font-size="14" font-weight="600" fill="#0f172a">Google Drive バックアップ</text>
+            <circle cx="510" cy="24" r="10" fill="#cbd5e1"/>
+            <text x="530" y="28" font-family="sans-serif" font-size="12" fill="#0f172a">user@example.com</text>
+            <text x="588" y="28" text-anchor="end" font-family="sans-serif" font-size="11" fill="#4338ca">ログアウト</text>
+
+            <!-- Title -->
+            <text x="20" y="90" font-family="sans-serif" font-size="18" font-weight="600" fill="#0f172a">複製したいフォルダを指定してください</text>
+            <text x="20" y="112" font-family="sans-serif" font-size="12" fill="#475569">共有 URL を貼り付けて、フォルダ情報を取得します。</text>
+
+            <!-- URL input (auto-fetch on paste) -->
+            <text x="20" y="148" font-family="sans-serif" font-size="12" font-weight="600" fill="#0f172a">フォルダの共有 URL（貼り付けで自動取得）</text>
+            <rect x="20" y="158" width="560" height="40" rx="4" fill="#fff" stroke="#cbd5e1"/>
+            <text x="32" y="183" font-family="monospace" font-size="11" fill="#94a3b8">https://drive.google.com/drive/folders/...</text>
+
+            <!-- Preview card -->
+            <rect x="20" y="230" width="560" height="160" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="36" y="254" font-family="sans-serif" font-size="11" fill="#475569">プレビュー</text>
+            <text x="36" y="280" font-family="sans-serif" font-size="15" font-weight="600" fill="#0f172a">📁 大事な資料</text>
+            <text x="36" y="304" font-family="sans-serif" font-size="12" fill="#475569">所在: マイドライブ / 仕事 / 大事な資料</text>
+            <text x="36" y="324" font-family="sans-serif" font-size="12" fill="#475569">直下のアイテム数: 23 件（うちサブフォルダ 4 件）</text>
+            <text x="36" y="344" font-family="sans-serif" font-size="12" fill="#475569">複製先名（自動）: Copy of 大事な資料 ※同名あれば (2) を付与</text>
+            <text x="36" y="375" font-family="sans-serif" font-size="11" fill="#16a34a">✓ 複製可能（親階層への書き込み権限あり）</text>
+
+            <!-- Action button -->
+            <rect x="20" y="420" width="180" height="44" rx="6" fill="#4338ca"/>
+            <text x="110" y="447" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="600" fill="#fff">複製を開始</text>
+            <text x="220" y="447" font-family="sans-serif" font-size="12" fill="#4338ca">キャンセル</text>
+
+            <text x="20" y="500" font-family="sans-serif" font-size="11" fill="#475569">※ 元フォルダには変更を加えません（読み取りのみ）</text>
+          </svg>
+
+          <!-- Mobile -->
+          <svg viewBox="0 0 320 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ホーム画面 モバイル ワイヤフレーム">
+            <rect x="0" y="0" width="320" height="700" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="0" y="0" width="320" height="48" fill="#f1f5f9" stroke="#cbd5e1"/>
+            <text x="16" y="30" font-family="sans-serif" font-size="12" font-weight="600" fill="#0f172a">Drive バックアップ</text>
+            <text x="304" y="28" text-anchor="end" font-family="sans-serif" font-size="11" fill="#4338ca">≡</text>
+
+            <text x="16" y="88" font-family="sans-serif" font-size="15" font-weight="600" fill="#0f172a">複製したいフォルダを指定</text>
+            <text x="16" y="108" font-family="sans-serif" font-size="11" fill="#475569">共有 URL を貼り付けてください。</text>
+
+            <text x="16" y="140" font-family="sans-serif" font-size="11" font-weight="600" fill="#0f172a">フォルダの共有 URL（貼り付けで自動取得）</text>
+            <rect x="16" y="148" width="288" height="40" rx="4" fill="#fff" stroke="#cbd5e1"/>
+            <text x="24" y="172" font-family="monospace" font-size="10" fill="#94a3b8">https://drive.google.com/...</text>
+
+            <rect x="16" y="260" width="288" height="180" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="28" y="284" font-family="sans-serif" font-size="10" fill="#475569">プレビュー</text>
+            <text x="28" y="308" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">📁 大事な資料</text>
+            <text x="28" y="330" font-family="sans-serif" font-size="11" fill="#475569">マイドライブ / 仕事 / 大事な資料</text>
+            <text x="28" y="350" font-family="sans-serif" font-size="11" fill="#475569">直下 23 件（サブフォルダ 4 件）</text>
+            <text x="28" y="370" font-family="sans-serif" font-size="11" fill="#475569">複製先: Copy of 大事な資料</text>
+            <text x="28" y="400" font-family="sans-serif" font-size="11" fill="#16a34a">✓ 複製可能</text>
+
+            <rect x="16" y="470" width="288" height="48" rx="6" fill="#4338ca"/>
+            <text x="160" y="500" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="600" fill="#fff">複製を開始</text>
+            <text x="160" y="540" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#4338ca">キャンセル</text>
+
+            <text x="16" y="600" font-family="sans-serif" font-size="10" fill="#475569">※ 元フォルダには変更を加えません</text>
+          </svg>
+        </div>
+      </figure>
+
+      <h3>3.2.3 UI 要素一覧</h3>
+      <table>
+        <thead>
+          <tr><th>要素名</th><th>型</th><th>役割</th><th>必須/任意</th><th>バリデーション</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ヘッダー（アプリ名）</td><td>テキスト</td><td>ブランディング</td><td>必須</td><td>—</td></tr>
+          <tr><td>ユーザー識別表示</td><td>テキスト</td><td>ログイン中アカウントのメールアドレス（または名前）</td><td>必須</td><td>—</td></tr>
+          <tr><td>「ログアウト」リンク</td><td>リンク</td><td>セッション破棄して SCR-001-login へ</td><td>必須</td><td>—</td></tr>
+          <tr><td>画面タイトル</td><td>テキスト (h2)</td><td>目的提示</td><td>必須</td><td>—</td></tr>
+          <tr><td>説明文</td><td>テキスト</td><td>操作手順を 1 文で説明</td><td>必須</td><td>—</td></tr>
+          <tr><td>「フォルダの共有 URL」入力欄</td><td>テキスト入力 (url)</td><td>Drive フォルダ URL の貼り付け先。<strong>入力変化後に debounce（500ms）で自動的にメタデータ取得を開始</strong>する。手動取得ボタンは持たない</td><td>必須</td><td>非空 ／ <code>drive.google.com/drive/folders/...</code> または <code>drive.google.com/open?id=...</code> 形式の URL ／ ID 文字列の単独入力も許容</td></tr>
+          <tr><td>プレビューカード</td><td>カード</td><td>取得したフォルダ情報を提示: フォルダ名 ／ 所在パス ／ <strong>直下のアイテム数</strong>（再帰総数ではない）／ 複製先名（同名がある場合は <code>(2)</code> 連番付与）／ 複製可否（親階層への書き込み権限の有無を含む）</td><td>取得成功後のみ表示</td><td>—</td></tr>
+          <tr><td>「複製を開始」ボタン</td><td>ボタン (primary)</td><td>SCR-003-progress へ遷移して複製処理を開始</td><td>プレビュー取得後かつ「複製可能」判定のときのみ活性</td><td>—</td></tr>
+          <tr><td>「キャンセル」リンク</td><td>リンク</td><td>入力欄とプレビューをクリア</td><td>任意</td><td>—</td></tr>
+          <tr><td>安全性に関する注記</td><td>テキスト</td><td>「元フォルダには変更を加えません」明示</td><td>必須</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.2.4 状態定義</h3>
+      <table class="ui-state-table">
+        <thead><tr><th>状態</th><th>表示内容</th></tr></thead>
+        <tbody>
+          <tr><td>空（初期）</td><td>URL 入力欄空、プレビュー非表示、「複製を開始」非表示</td></tr>
+          <tr><td>読込中（debounce 待機 + メタデータ取得中）</td><td>入力 500ms 後に自動的に取得開始。入力欄右側にスピナー表示。プレビューカードはスケルトン表示（プレースホルダ枠）。「複製を開始」非表示</td></tr>
+          <tr><td>取得成功（複製可能）</td><td>プレビューカード表示（「✓ 複製可能」）、「複製を開始」活性</td></tr>
+          <tr><td>取得成功（複製不可：親階層に書き込み権限なし）</td><td>プレビューカード表示（「⚠ 親階層への書き込み権限がありません」、複製先名は仮表示）、「複製を開始」disable。下に説明文を併記</td></tr>
+          <tr><td>取得エラー（URL不正・404・403・共有ドライブ等）</td><td>プレビュー非表示、入力欄下に赤字エラーメッセージ。再入力で再取得</td></tr>
+          <tr><td>レスポンシブ（PC ≥ 768px）</td><td>入力欄とボタンを横並び、プレビューカードは横長</td></tr>
+          <tr><td>レスポンシブ（モバイル &lt; 768px）</td><td>入力欄とボタンを縦積み、プレビューカードはフル幅</td></tr>
+        </tbody>
+      </table>
+
+      <h4>取得エラーの文言例</h4>
+      <table>
+        <thead><tr><th>原因</th><th>表示文言</th></tr></thead>
+        <tbody>
+          <tr><td>URL 解析失敗</td><td>「URL からフォルダ ID を読み取れませんでした。共有 URL を貼り付けたかご確認ください。」</td></tr>
+          <tr><td>指定先がファイル（フォルダではない）</td><td>「これはフォルダではありません。フォルダの共有 URL を指定してください。」</td></tr>
+          <tr><td>404 Not Found</td><td>「フォルダが見つかりませんでした。URL をご確認ください。」</td></tr>
+          <tr><td>403 権限なし</td><td>「このフォルダへのアクセス権がありません。所有者に確認してください。」</td></tr>
+          <tr><td>共有ドライブ内</td><td>「共有ドライブ（チームドライブ）内のフォルダは現在サポートしていません。」</td></tr>
+          <tr><td>親階層への書き込み権限なし<br>（非オーナーフォルダで親に書き込めない場合）</td><td>「このフォルダの親階層に複製を作成する権限がありません。所有者に親フォルダの編集権限を依頼するか、自分のドライブにコピーを置いてから複製してください。」</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.2.5 操作とイベント</h3>
+      <table>
+        <thead>
+          <tr><th>操作対象</th><th>操作</th><th>動作</th><th>遷移先</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>URL 入力欄</td><td>入力 / 貼付</td><td>変化後 500ms（debounce）で URL からフォルダ ID 抽出 → files.get でメタデータ取得 → 親階層の書き込み権限を確認 → プレビュー表示。短時間に連続入力があれば前回取得をキャンセルして最新値で取り直す</td><td>本画面に留まる（状態のみ変化）</td></tr>
+          <tr><td>URL 入力欄</td><td>Enter キー</td><td>debounce を待たず即時取得を開始（中身は同じ）</td><td>—</td></tr>
+          <tr><td>「複製を開始」</td><td>クリック / Enter</td><td>処理を開始しすぐ SCR-003-progress へ</td><td>SCR-003-progress</td></tr>
+          <tr><td>「キャンセル」</td><td>クリック</td><td>入力欄とプレビューをクリア</td><td>—</td></tr>
+          <tr><td>「ログアウト」</td><td>クリック</td><td>確認なくトークンを破棄</td><td>SCR-001-login</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.2.6 アクセシビリティ</h3>
+      <ul>
+        <li>URL 入力欄は <code>&lt;input type="url"&gt;</code>、ラベルは <code>&lt;label for&gt;</code> で紐付け</li>
+        <li>エラーメッセージは <code>aria-live="polite"</code> 領域に出力</li>
+        <li>プレビューカードの表示時はフォーカスを「複製を開始」に移動（ユーザーがすぐ実行できる）</li>
+        <li>URL 入力欄で Enter を押すと debounce を待たず即時取得を実行。フォーカスが「複製を開始」にある時は「複製を開始」を実行</li>
+        <li>自動取得中はスクリーンリーダー向けに「取得中」を <code>aria-live</code> で通知し、サイレントな読込状態を避ける</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- 3.3 SCR-003-progress -->
+    <section id="scr-003-progress">
+      <h2>3.3 SCR-003-progress: 複製中（進捗）</h2>
+
+      <h3>3.3.1 目的</h3>
+      <p>複製処理の進捗をリアルタイムに表示し、ユーザーに「動いている」安心感と「あとどれくらいで終わるか」の見通しを与える。任意のタイミングで中止できる。</p>
+
+      <h4>進捗の 2 フェーズ表示（2026-05-29 設計確定）</h4>
+      <p>動作確認の結果「分母が処理中に増える」挙動はユーザーが終わりを予測できず使いづらいと判明したため、進捗を 2 フェーズに分けて表示する：</p>
+      <ol>
+        <li><strong>集計フェーズ（counting）</strong>: 元フォルダを再帰的に列挙して総アイテム数を確定する。UI は「集計中…」見出し、スピナー、「N 件 発見」カウンター、列挙中のフォルダ名を表示。進捗バーは出さない（total が未確定のため）</li>
+        <li><strong>複製フェーズ（copying）</strong>: 確定した total に対して進捗バーを 0%→100% に正確に進める。「45% (12 / 27)」のように決定的な数値を表示</li>
+      </ol>
+      <p>列挙キャッシュを内部で持つため、API 呼び出し回数は 1 フェーズ方式と同じ（1 フォルダにつき listAllChildren を 1 回のみ）。複製先フォルダの作成は集計後に行うため、集計中に中止した場合 Drive にゴミは残らない。</p>
+
+      <h3>3.3.2 ワイヤフレーム</h3>
+      <figure class="wireframe">
+        <figcaption>図4. SCR-003-progress（PC・モバイル）</figcaption>
+        <div class="wireframe-grid two-up">
+          <!-- PC -->
+          <svg viewBox="0 0 600 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="進捗画面 PC ワイヤフレーム">
+            <rect x="0" y="0" width="600" height="460" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="0" y="0" width="600" height="48" fill="#f1f5f9" stroke="#cbd5e1"/>
+            <text x="20" y="30" font-family="sans-serif" font-size="14" font-weight="600" fill="#0f172a">Google Drive バックアップ</text>
+
+            <text x="20" y="90" font-family="sans-serif" font-size="18" font-weight="600" fill="#0f172a">複製中…</text>
+            <text x="20" y="112" font-family="sans-serif" font-size="12" fill="#475569">「大事な資料」を「Copy of 大事な資料」に複製しています。</text>
+
+            <!-- progress bar -->
+            <rect x="20" y="140" width="560" height="14" rx="7" fill="#e2e8f0"/>
+            <rect x="20" y="140" width="252" height="14" rx="7" fill="#4338ca"/>
+            <text x="580" y="135" text-anchor="end" font-family="sans-serif" font-size="12" font-weight="600" fill="#0f172a">45% (12 / 27)</text>
+
+            <text x="20" y="190" font-family="sans-serif" font-size="11" fill="#475569">処理中のアイテム</text>
+            <text x="20" y="212" font-family="monospace" font-size="13" fill="#0f172a">📄 議事録_2026Q1.docx</text>
+
+            <!-- stats -->
+            <rect x="20" y="240" width="180" height="70" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="36" y="262" font-family="sans-serif" font-size="11" fill="#475569">成功</text>
+            <text x="36" y="295" font-family="sans-serif" font-size="22" font-weight="600" fill="#16a34a">11</text>
+
+            <rect x="210" y="240" width="180" height="70" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="226" y="262" font-family="sans-serif" font-size="11" fill="#475569">スキップ</text>
+            <text x="226" y="295" font-family="sans-serif" font-size="22" font-weight="600" fill="#d97706">1</text>
+
+            <rect x="400" y="240" width="180" height="70" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="416" y="262" font-family="sans-serif" font-size="11" fill="#475569">残り</text>
+            <text x="416" y="295" font-family="sans-serif" font-size="22" font-weight="600" fill="#0f172a">15</text>
+
+            <!-- cancel button -->
+            <rect x="20" y="350" width="140" height="40" rx="6" fill="#fff" stroke="#dc2626"/>
+            <text x="90" y="375" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#dc2626">中止</text>
+
+            <text x="20" y="420" font-family="sans-serif" font-size="11" fill="#475569">※ 画面を閉じても、Drive 側の処理は継続できません（再実行が必要）</text>
+          </svg>
+
+          <!-- Mobile -->
+          <svg viewBox="0 0 320 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="進捗画面 モバイル ワイヤフレーム">
+            <rect x="0" y="0" width="320" height="640" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="0" y="0" width="320" height="48" fill="#f1f5f9" stroke="#cbd5e1"/>
+            <text x="16" y="30" font-family="sans-serif" font-size="12" font-weight="600" fill="#0f172a">Drive バックアップ</text>
+
+            <text x="16" y="88" font-family="sans-serif" font-size="16" font-weight="600" fill="#0f172a">複製中…</text>
+            <text x="16" y="108" font-family="sans-serif" font-size="11" fill="#475569">「大事な資料」を複製中</text>
+
+            <rect x="16" y="130" width="288" height="14" rx="7" fill="#e2e8f0"/>
+            <rect x="16" y="130" width="130" height="14" rx="7" fill="#4338ca"/>
+            <text x="304" y="158" text-anchor="end" font-family="sans-serif" font-size="11" font-weight="600" fill="#0f172a">45% (12/27)</text>
+
+            <text x="16" y="190" font-family="sans-serif" font-size="10" fill="#475569">処理中</text>
+            <text x="16" y="210" font-family="monospace" font-size="12" fill="#0f172a">📄 議事録_2026Q1.docx</text>
+
+            <rect x="16" y="240" width="288" height="56" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="28" y="260" font-family="sans-serif" font-size="10" fill="#475569">成功</text>
+            <text x="28" y="285" font-family="sans-serif" font-size="18" font-weight="600" fill="#16a34a">11</text>
+
+            <rect x="16" y="310" width="288" height="56" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="28" y="330" font-family="sans-serif" font-size="10" fill="#475569">スキップ</text>
+            <text x="28" y="355" font-family="sans-serif" font-size="18" font-weight="600" fill="#d97706">1</text>
+
+            <rect x="16" y="380" width="288" height="56" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="28" y="400" font-family="sans-serif" font-size="10" fill="#475569">残り</text>
+            <text x="28" y="425" font-family="sans-serif" font-size="18" font-weight="600" fill="#0f172a">15</text>
+
+            <rect x="16" y="470" width="288" height="48" rx="6" fill="#fff" stroke="#dc2626"/>
+            <text x="160" y="500" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="600" fill="#dc2626">中止</text>
+
+            <text x="16" y="570" font-family="sans-serif" font-size="10" fill="#475569">※ 画面を閉じると処理は継続できません</text>
+          </svg>
+        </div>
+      </figure>
+
+      <h3>3.3.3 UI 要素一覧</h3>
+      <table>
+        <thead>
+          <tr><th>要素名</th><th>型</th><th>役割</th><th>必須/任意</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>画面タイトル</td><td>テキスト (h2)</td><td>phase=counting なら「集計中…」、phase=copying なら「複製中…」</td><td>必須</td></tr>
+          <tr><td>サブテキスト</td><td>テキスト</td><td>counting: 「複製するアイテムを数えています…」<br>copying: 「{元名} を {複製先名} に複製しています」</td><td>必須</td></tr>
+          <tr><td>集計カウンター（counting のみ）</td><td>カード</td><td>「N 件 発見」を大きく表示。スピナーを併記</td><td>counting フェーズで必須</td></tr>
+          <tr><td>進捗バー（copying のみ）</td><td>progress bar</td><td>進捗率を視覚化（0〜100%）。total は固定なので単調増加</td><td>copying フェーズで必須</td></tr>
+          <tr><td>進捗数値ラベル（copying のみ）</td><td>テキスト</td><td>「X% (n / total)」</td><td>copying フェーズで必須</td></tr>
+          <tr><td>処理中アイテム名</td><td>テキスト（monospace）</td><td>counting: 集計中フォルダ名（📁 付き）<br>copying: 処理中アイテム名（📄 付き）</td><td>必須</td></tr>
+          <tr><td>成功カウンター</td><td>カード</td><td>成功件数</td><td>必須</td></tr>
+          <tr><td>スキップカウンター</td><td>カード</td><td>スキップ件数</td><td>必須</td></tr>
+          <tr><td>残りカウンター</td><td>カード</td><td>未処理件数</td><td>必須</td></tr>
+          <tr><td>「中止」ボタン</td><td>ボタン (danger)</td><td>処理停止を要求</td><td>必須</td></tr>
+          <tr><td>注意書き（画面を閉じると…）</td><td>テキスト</td><td>離脱の影響を予告</td><td>必須</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.3.4 状態定義</h3>
+      <table class="ui-state-table">
+        <thead><tr><th>状態</th><th>表示内容</th></tr></thead>
+        <tbody>
+          <tr><td>集計中（phase=counting）</td><td>見出し「集計中…」、スピナー + 「<strong>N 件 発見</strong>」カウンター、現在列挙中のフォルダ名表示。進捗バーは非表示（total が未確定のため）。中止ボタンは活性</td></tr>
+          <tr><td>複製中（phase=copying）— 進行中</td><td>見出し「複製中…」、進捗バー前進、処理中アイテム名が逐次更新、成功/スキップ/残りカウンター更新。<strong>total は固定なので進捗バーは単調増加</strong>（決定変更：以前の B 案 = 逐次更新は採用しない）</td></tr>
+          <tr><td>停滞中（API レート制限・リトライ待ち）</td><td>処理中アイテムの下に「API 制限のため待機中（◯秒）」を表示。進捗バーは停止</td></tr>
+          <tr><td>中止要求中</td><td>「中止」を「中止しています…」に変えて disable。<strong>進行中の API リクエストを AbortController で速やかに中断</strong>。中断完了次第 SCR-004-report へ</td></tr>
+          <tr><td>完了</td><td>自動的に SCR-004-report へ遷移</td></tr>
+          <tr><td>致命的エラー（トークン失効等）</td><td>処理を中断し SCR-001-login に戻る＋トースト</td></tr>
+          <tr><td>レスポンシブ（PC）</td><td>カウンターを 3 列横並び</td></tr>
+          <tr><td>レスポンシブ（モバイル）</td><td>カウンターを縦積み</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.3.5 操作とイベント</h3>
+      <table>
+        <thead>
+          <tr><th>操作対象</th><th>操作</th><th>動作</th><th>遷移先</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>「中止」</td><td>クリック</td><td>確認ダイアログ表示 → 「中止する」で AbortController を発火、進行中の fetch を中断する。完了予定だったアイテムは「中止」として記録</td><td>中断完了後 SCR-004-report</td></tr>
+          <tr><td>ブラウザ「戻る」「閉じる」</td><td>—</td><td>beforeunload で警告ダイアログを出す</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.3.6 アクセシビリティ</h3>
+      <ul>
+        <li>進捗バーは <code>&lt;progress&gt;</code> 要素、または <code>role="progressbar"</code> + <code>aria-valuenow</code> 等</li>
+        <li>処理中アイテム名は <code>aria-live="polite"</code> 領域。読み上げが過剰にならないよう更新間隔は最低 1 秒</li>
+        <li>「中止」ボタンは赤系で danger を示すが、色だけでなく文言「中止」で意図を明示</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- 3.4 SCR-004-report -->
+    <section id="scr-004-report">
+      <h2>3.4 SCR-004-report: 完了レポート</h2>
+
+      <h3>3.4.1 目的</h3>
+      <p>複製の結果（成功・スキップ）をまとめて提示し、複製先フォルダへ Drive 内で直接アクセスさせる。次の複製にも素早く移れるようにする。</p>
+
+      <h3>3.4.2 ワイヤフレーム</h3>
+      <figure class="wireframe">
+        <figcaption>図5. SCR-004-report（PC・モバイル）</figcaption>
+        <div class="wireframe-grid two-up">
+          <!-- PC -->
+          <svg viewBox="0 0 600 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="レポート画面 PC ワイヤフレーム">
+            <rect x="0" y="0" width="600" height="540" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="0" y="0" width="600" height="48" fill="#f1f5f9" stroke="#cbd5e1"/>
+            <text x="20" y="30" font-family="sans-serif" font-size="14" font-weight="600" fill="#0f172a">Google Drive バックアップ</text>
+
+            <text x="20" y="90" font-family="sans-serif" font-size="20" font-weight="600" fill="#16a34a">✓ 複製が完了しました</text>
+            <text x="20" y="115" font-family="sans-serif" font-size="12" fill="#475569">「Copy of 大事な資料」を作成しました（一部スキップあり）</text>
+
+            <!-- summary cards -->
+            <rect x="20" y="140" width="180" height="80" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="36" y="162" font-family="sans-serif" font-size="11" fill="#475569">成功</text>
+            <text x="36" y="200" font-family="sans-serif" font-size="26" font-weight="600" fill="#16a34a">26</text>
+
+            <rect x="210" y="140" width="180" height="80" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="226" y="162" font-family="sans-serif" font-size="11" fill="#475569">スキップ</text>
+            <text x="226" y="200" font-family="sans-serif" font-size="26" font-weight="600" fill="#d97706">1</text>
+
+            <rect x="400" y="140" width="180" height="80" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="416" y="162" font-family="sans-serif" font-size="11" fill="#475569">所要時間</text>
+            <text x="416" y="200" font-family="sans-serif" font-size="22" font-weight="600" fill="#0f172a">02:14</text>
+
+            <!-- link to result -->
+            <rect x="20" y="245" width="560" height="56" rx="6" fill="#eef2ff" stroke="#4338ca"/>
+            <text x="36" y="270" font-family="sans-serif" font-size="12" fill="#475569">複製先フォルダ</text>
+            <text x="36" y="290" font-family="sans-serif" font-size="14" font-weight="600" fill="#4338ca">📁 Copy of 大事な資料 — Drive で開く ↗</text>
+
+            <!-- skip list -->
+            <text x="20" y="335" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">スキップしたアイテム (1)</text>
+            <rect x="20" y="345" width="560" height="80" rx="6" fill="#fff" stroke="#cbd5e1"/>
+            <text x="36" y="370" font-family="monospace" font-size="12" fill="#0f172a">📄 巨大ファイル.zip</text>
+            <text x="36" y="390" font-family="sans-serif" font-size="11" fill="#dc2626">403: ファイルサイズが Drive のクォータを超過</text>
+            <text x="36" y="410" font-family="sans-serif" font-size="11" fill="#475569">所在: /大事な資料/添付/</text>
+
+            <!-- actions -->
+            <rect x="20" y="455" width="220" height="44" rx="6" fill="#4338ca"/>
+            <text x="130" y="482" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="600" fill="#fff">新しい複製を始める</text>
+            <text x="260" y="482" font-family="sans-serif" font-size="12" fill="#4338ca">レポートをコピー</text>
+          </svg>
+
+          <!-- Mobile -->
+          <svg viewBox="0 0 320 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="レポート画面 モバイル ワイヤフレーム">
+            <rect x="0" y="0" width="320" height="760" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="0" y="0" width="320" height="48" fill="#f1f5f9" stroke="#cbd5e1"/>
+            <text x="16" y="30" font-family="sans-serif" font-size="12" font-weight="600" fill="#0f172a">Drive バックアップ</text>
+
+            <text x="16" y="88" font-family="sans-serif" font-size="16" font-weight="600" fill="#16a34a">✓ 複製が完了しました</text>
+            <text x="16" y="110" font-family="sans-serif" font-size="11" fill="#475569">Copy of 大事な資料（一部スキップ）</text>
+
+            <rect x="16" y="135" width="288" height="62" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="28" y="156" font-family="sans-serif" font-size="10" fill="#475569">成功</text>
+            <text x="28" y="185" font-family="sans-serif" font-size="22" font-weight="600" fill="#16a34a">26</text>
+
+            <rect x="16" y="210" width="288" height="62" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="28" y="231" font-family="sans-serif" font-size="10" fill="#475569">スキップ</text>
+            <text x="28" y="260" font-family="sans-serif" font-size="22" font-weight="600" fill="#d97706">1</text>
+
+            <rect x="16" y="285" width="288" height="62" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="28" y="306" font-family="sans-serif" font-size="10" fill="#475569">所要時間</text>
+            <text x="28" y="335" font-family="sans-serif" font-size="22" font-weight="600" fill="#0f172a">02:14</text>
+
+            <rect x="16" y="370" width="288" height="56" rx="6" fill="#eef2ff" stroke="#4338ca"/>
+            <text x="28" y="394" font-family="sans-serif" font-size="10" fill="#475569">複製先フォルダ</text>
+            <text x="28" y="415" font-family="sans-serif" font-size="12" font-weight="600" fill="#4338ca">📁 Copy of 大事な資料 ↗</text>
+
+            <text x="16" y="455" font-family="sans-serif" font-size="12" font-weight="600" fill="#0f172a">スキップ (1)</text>
+            <rect x="16" y="465" width="288" height="80" rx="6" fill="#fff" stroke="#cbd5e1"/>
+            <text x="28" y="490" font-family="monospace" font-size="11" fill="#0f172a">📄 巨大ファイル.zip</text>
+            <text x="28" y="510" font-family="sans-serif" font-size="10" fill="#dc2626">403: クォータ超過</text>
+            <text x="28" y="528" font-family="sans-serif" font-size="10" fill="#475569">/大事な資料/添付/</text>
+
+            <rect x="16" y="580" width="288" height="48" rx="6" fill="#4338ca"/>
+            <text x="160" y="610" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="600" fill="#fff">新しい複製を始める</text>
+            <text x="160" y="660" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#4338ca">レポートをコピー</text>
+          </svg>
+        </div>
+      </figure>
+
+      <h3>3.4.3 UI 要素一覧</h3>
+      <table>
+        <thead>
+          <tr><th>要素名</th><th>型</th><th>役割</th><th>必須/任意</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>結果見出し（✓ / ⚠ アイコン付き）</td><td>テキスト (h2)</td><td>成功・部分成功・中止を一目で示す</td><td>必須</td></tr>
+          <tr><td>サブテキスト</td><td>テキスト</td><td>複製先名と概況</td><td>必須</td></tr>
+          <tr><td>成功カード</td><td>カード</td><td>成功件数</td><td>必須</td></tr>
+          <tr><td>スキップカード</td><td>カード</td><td>スキップ件数</td><td>必須</td></tr>
+          <tr><td>所要時間カード</td><td>カード</td><td>処理に要した時間</td><td>必須</td></tr>
+          <tr><td>複製先リンク</td><td>リンク（強調）</td><td>Drive 上の複製先フォルダを別タブで開く</td><td>必須</td></tr>
+          <tr><td>スキップ一覧</td><td>リスト</td><td>スキップしたアイテム名・理由・所在を 1 件ずつ表示</td><td>スキップが 1 件以上ある場合のみ表示</td></tr>
+          <tr><td>「新しい複製を始める」ボタン</td><td>ボタン (primary)</td><td>SCR-002-home に戻る</td><td>必須</td></tr>
+          <tr><td>「レポートをコピー」リンク</td><td>リンク</td><td>レポート内容をプレーンテキストとしてクリップボードにコピー</td><td>必須</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.4.4 状態定義</h3>
+      <table class="ui-state-table">
+        <thead><tr><th>状態</th><th>表示内容</th></tr></thead>
+        <tbody>
+          <tr><td>全件成功</td><td>見出し「✓ 複製が完了しました」、スキップカードは「0」、スキップ一覧は非表示</td></tr>
+          <tr><td>部分成功</td><td>見出し「✓ 複製が完了しました（一部スキップあり）」、スキップ一覧表示</td></tr>
+          <tr><td>中止</td><td>見出し「⚠ 複製を中止しました」、成功カードに「中止までに成功した件数」、複製先リンクは表示（中途状態のフォルダが残るため）</td></tr>
+          <tr><td>レポートコピー直後</td><td>「レポートをコピー」を 2 秒間「コピーしました」に変更してフィードバック</td></tr>
+          <tr><td>レスポンシブ（PC）</td><td>サマリーカード 3 列横並び</td></tr>
+          <tr><td>レスポンシブ（モバイル）</td><td>サマリーカード縦積み</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.4.5 操作とイベント</h3>
+      <table>
+        <thead>
+          <tr><th>操作対象</th><th>操作</th><th>動作</th><th>遷移先</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>複製先リンク</td><td>クリック</td><td>新規タブで <code>https://drive.google.com/drive/folders/{newId}</code> を開く</td><td>—</td></tr>
+          <tr><td>「新しい複製を始める」</td><td>クリック</td><td>状態リセットして SCR-002-home へ</td><td>SCR-002-home</td></tr>
+          <tr><td>「レポートをコピー」</td><td>クリック</td><td>レポート文（プレーンテキスト）をクリップボードへ</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.4.6 アクセシビリティ</h3>
+      <ul>
+        <li>結果見出しはアイコン（✓ / ⚠）の意味を文字でも明示</li>
+        <li>スキップ一覧は <code>&lt;ul&gt;</code> ＋ <code>&lt;li&gt;</code> の構造、スクリーンリーダーで件数とエラー理由が読まれる順序にする</li>
+        <li>「レポートをコピー」のフィードバックは <code>aria-live="polite"</code> でアナウンス</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="common-components">
+      <h2>4. 共通コンポーネント</h2>
+      <p>全画面で再利用するコンポーネントを定義する。色味・サイズの実装値は <a href="#design-tokens">5. デザイントークン</a> 参照。</p>
+
+      <h3>4.1 ボタン</h3>
+      <table>
+        <thead><tr><th>種別</th><th>用途</th><th>例</th></tr></thead>
+        <tbody>
+          <tr><td>Primary</td><td>その画面で最も推奨される操作（CTA）</td><td>「複製を開始」「Google でログイン」</td></tr>
+          <tr><td>Secondary</td><td>準次操作</td><td>「情報を取得」</td></tr>
+          <tr><td>Tertiary (link)</td><td>補助操作</td><td>「キャンセル」「ログアウト」「レポートをコピー」</td></tr>
+          <tr><td>Danger</td><td>破壊的・引き返しにくい操作</td><td>「中止」</td></tr>
+        </tbody>
+      </table>
+      <p>状態: 通常 / hover / focus / active / disabled / busy（loading 中、内部にスピナーを置く）。</p>
+
+      <h3>4.2 フォーム要素</h3>
+      <ul>
+        <li>入力欄は <code>&lt;label&gt;</code> 必須。プレースホルダだけのラベル代用は不可（アクセシビリティ要件）。</li>
+        <li>エラー時は入力欄の枠を赤に、下に赤字でエラー文を出す（<code>aria-describedby</code> で関連付け）。</li>
+        <li>入力欄は読み込み中・処理中は disabled。</li>
+      </ul>
+
+      <h3>4.3 モーダル（確認ダイアログ）</h3>
+      <p>用途: 「中止」確認、ログアウト時の確認（処理中の場合）。構造: 見出し ＋ 説明文 ＋ 2 ボタン（Cancel / Confirm）。Esc キーで閉じる、外側クリックでも閉じる（破壊的アクションの確認時は外側クリックは無効化）。</p>
+
+      <h3>4.4 トースト</h3>
+      <p>用途: 「ログインがキャンセルされました」「クリップボードにコピーしました」「セッションが切れました（再ログインしてください）」など、ユーザーに非ブロッキングで通知。位置: 画面右下（モバイルは下端中央）。表示時間: 4 秒（重要度高は 6 秒）。手動で閉じる × ボタン。</p>
+
+      <h3>4.5 進捗バー</h3>
+      <p>用途: SCR-003-progress 専用。<code>&lt;progress max="100" value="..."&gt;</code> または <code>role="progressbar"</code> 実装。</p>
+
+      <h3>4.6 カード</h3>
+      <p>用途: プレビューカード、カウンターカード、スキップ詳細カード。背景 <code>--color-surface</code>、角丸 6px、内側 padding 0.75rem 1rem。</p>
+
+      <h3>4.7 リンク</h3>
+      <p>本文中のリンク・複製先リンクは <code>--color-accent</code>、hover で下線。新しいタブで開くリンクには ↗ アイコンを末尾に付与。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="design-tokens">
+      <h2>5. デザイントークン</h2>
+      <p>実装値は <code>docs/assets/design-system.css</code> の CSS カスタムプロパティに準拠。本節は意図と値の対応表として参照する。</p>
+
+      <h3>5.1 色（ライトモード基準）</h3>
+      <table>
+        <thead><tr><th>トークン</th><th>値</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="token-swatch" style="background:#ffffff"></span>--color-bg</td><td>#ffffff</td><td>ページ背景</td></tr>
+          <tr><td><span class="token-swatch" style="background:#f8fafc"></span>--color-surface</td><td>#f8fafc</td><td>カード・テーブル偶数行</td></tr>
+          <tr><td><span class="token-swatch" style="background:#f1f5f9"></span>--color-surface-2</td><td>#f1f5f9</td><td>ヘッダー背景・コード背景</td></tr>
+          <tr><td><span class="token-swatch" style="background:#e2e8f0"></span>--color-border</td><td>#e2e8f0</td><td>区切り線・枠</td></tr>
+          <tr><td><span class="token-swatch" style="background:#0f172a"></span>--color-text</td><td>#0f172a</td><td>本文テキスト</td></tr>
+          <tr><td><span class="token-swatch" style="background:#475569"></span>--color-text-muted</td><td>#475569</td><td>補助テキスト</td></tr>
+          <tr><td><span class="token-swatch" style="background:#4338ca"></span>--color-accent</td><td>#4338ca</td><td>Primary ボタン・リンク・アクセント</td></tr>
+          <tr><td><span class="token-swatch" style="background:#3730a3"></span>--color-accent-hover</td><td>#3730a3</td><td>Primary hover</td></tr>
+          <tr><td><span class="token-swatch" style="background:#eef2ff"></span>--color-accent-bg</td><td>#eef2ff</td><td>アクセント背景・複製先リンクカード</td></tr>
+          <tr><td><span class="token-swatch" style="background:#16a34a"></span>(success)</td><td>#16a34a</td><td>成功カウント・完了見出し</td></tr>
+          <tr><td><span class="token-swatch" style="background:#d97706"></span>(warning)</td><td>#d97706</td><td>スキップカウント・警告</td></tr>
+          <tr><td><span class="token-swatch" style="background:#dc2626"></span>(danger)</td><td>#dc2626</td><td>Danger ボタン・エラー文言</td></tr>
+        </tbody>
+      </table>
+      <p>ダークモードは <code>@media (prefers-color-scheme: dark)</code> でトークン値を切り替え（CSS 参照）。</p>
+
+      <h3>5.2 タイポグラフィ</h3>
+      <table>
+        <thead><tr><th>役割</th><th>サイズ</th><th>太さ</th></tr></thead>
+        <tbody>
+          <tr><td>h1</td><td>1.875rem</td><td>700</td></tr>
+          <tr><td>h2</td><td>1.5rem</td><td>700</td></tr>
+          <tr><td>h3</td><td>1.25rem</td><td>700</td></tr>
+          <tr><td>本文</td><td>1rem</td><td>400</td></tr>
+          <tr><td>補助テキスト</td><td>0.875rem</td><td>400</td></tr>
+          <tr><td>ボタン</td><td>0.9375rem</td><td>600</td></tr>
+          <tr><td>code / アイテム名</td><td>0.9em</td><td>400 (monospace)</td></tr>
+        </tbody>
+      </table>
+      <p>フォントスタック: <code>-apple-system, "Segoe UI", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", Meiryo, system-ui, sans-serif</code>。</p>
+
+      <h3>5.3 スペーシング</h3>
+      <p>ベース 4px グリッド。一般的なマージン: 0.25 / 0.5 / 0.75 / 1 / 1.5 / 2 / 2.5 rem。カードの内側 padding は 0.75rem 1rem を基本。</p>
+
+      <h3>5.4 角丸 / ボーダー</h3>
+      <p><code>--radius: 6px</code> を基本（カード・ボタン・入力欄）。プログレスバーのみ 7px（高さの半分）。</p>
+
+      <h3>5.5 アイコン</h3>
+      <p>MVP では絵文字（📁 / 📄 / ✓ / ⚠ / ↗）で代用。アイコンフォント・SVG セットは導入しない（プロダクト要求 NFR-06「追加インストール・拡張機能不要」を踏まえ軽量を維持）。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="offscreen-behaviors">
+      <h2>6. 画面外の振る舞い</h2>
+
+      <h3>6.1 トーストの発火タイミング</h3>
+      <table>
+        <thead><tr><th>イベント</th><th>文言</th><th>重要度</th></tr></thead>
+        <tbody>
+          <tr><td>ログインキャンセル</td><td>「ログインがキャンセルされました。」</td><td>info</td></tr>
+          <tr><td>ネットワーク一時切断</td><td>「ネットワークに接続できません。回復を待っています…」</td><td>warn</td></tr>
+          <tr><td>セッション失効</td><td>「セッションが切れました。再度ログインしてください。」</td><td>warn</td></tr>
+          <tr><td>レポートコピー成功</td><td>「クリップボードにコピーしました。」</td><td>info</td></tr>
+          <tr><td>API レート制限再開</td><td>「処理を再開しました。」</td><td>info</td></tr>
+        </tbody>
+      </table>
+
+      <h3>6.2 モーダル発火タイミング</h3>
+      <table>
+        <thead><tr><th>イベント</th><th>内容</th></tr></thead>
+        <tbody>
+          <tr><td>SCR-003-progress で「中止」</td><td>「複製を中止しますか？ 進行中の処理を速やかに中断します。途中まで作成された「Copy of …」フォルダおよび複製済みのアイテムは Drive に残ります。」 [中止する] [続行]</td></tr>
+          <tr><td>SCR-003-progress でログアウト要求</td><td>「複製処理中です。ログアウトすると処理が止まります。よろしいですか？」 [ログアウト] [キャンセル]</td></tr>
+          <tr><td>ブラウザ閉じる / リロード</td><td>ネイティブ <code>beforeunload</code> ダイアログ（処理中のみ）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>6.3 リトライ・バックオフ</h3>
+      <p>API 呼び出しで 429 / 5xx を受けたら、指数バックオフ（初回 1 秒、最大 30 秒、最大 5 回）でリトライする。リトライ中は SCR-003-progress に「API 制限のため待機中（◯秒）」を表示。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="glossary-mapping">
+      <h2>7. 用語整合</h2>
+      <p>UI ラベルと <a href="glossary.html">用語集（glossary.html）</a> の対応。揺れを避けるため、UI 上の表現は本表の「UIラベル」を正とする。</p>
+      <table>
+        <thead><tr><th>UIラベル</th><th>用語集の正式名称</th><th>英語表記</th><th>避ける表現</th></tr></thead>
+        <tbody>
+          <tr><td>複製を開始</td><td>フォルダ複製</td><td>Duplicate / Copy</td><td>「実行」「コピーする」</td></tr>
+          <tr><td>複製先フォルダ</td><td>複製先フォルダ</td><td>Destination Folder</td><td>「コピー先」「保存先」</td></tr>
+          <tr><td>共有 URL</td><td>共有リンク URL</td><td>Shared URL</td><td>「リンク」「アドレス」</td></tr>
+          <tr><td>アイテム</td><td>アイテム（Drive 上のファイルまたはフォルダ）</td><td>Item</td><td>「データ」「もの」</td></tr>
+          <tr><td>スキップ</td><td>スキップ（複製失敗時の継続処理）</td><td>Skip</td><td>「エラー」「失敗」</td></tr>
+          <tr><td>中止</td><td>中止（ユーザー指示による停止）</td><td>Cancel / Abort</td><td>「キャンセル」（こちらはフォーム入力のクリアに使う）</td></tr>
+          <tr><td>レポート</td><td>完了レポート</td><td>Report</td><td>「結果」「サマリー」</td></tr>
+          <tr><td>自動取得</td><td>自動取得（URL 貼付時のメタデータ取得）</td><td>Auto Fetch</td><td>「自動読み込み」「自動検索」</td></tr>
+          <tr><td>連番付与</td><td><code>(2)</code> 連番付与</td><td>Sequence Suffix</td><td>「採番」「サフィックス」</td></tr>
+        </tbody>
+      </table>
+      <p class="callout-warn">用語集（glossary.html）に新規追加した語があれば、本表との整合を必ず確認すること。</p>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <p>関連ドキュメント: <a href="product-requirements.html">プロダクト要求</a> / <a href="functional-design.html">機能設計</a> / <a href="glossary.html">用語集</a></p>
+  </footer>
+
+</body>
+</html>

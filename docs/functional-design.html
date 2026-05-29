@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>機能設計書 — Google Drive バックアップ</title>
+  <link rel="stylesheet" href="assets/design-system.css">
+</head>
+<body>
+
+  <header class="doc-header">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <h1>機能設計書</h1>
+    <p class="doc-meta">Google Drive バックアップ ／ 最終更新: 2026-05-29（2フェーズ進捗・未決事項確定）／ ステータス: ドラフト</p>
+  </header>
+
+  <details class="toc" open>
+    <summary>目次</summary>
+    <nav aria-label="目次">
+      <ol>
+        <li><a href="#architecture">1. アーキテクチャ概観</a></li>
+        <li><a href="#system-diagram">2. システム構成図</a></li>
+        <li><a href="#data-model">3. データモデル / ER 図</a></li>
+        <li><a href="#component-design">4. コンポーネント設計</a></li>
+        <li><a href="#state-management">5. 状態管理</a></li>
+        <li><a href="#persistence">6. 永続化方針</a></li>
+        <li><a href="#copy-algorithm">7. フォルダ複製アルゴリズム</a></li>
+        <li><a href="#error-handling">8. エラーハンドリング</a></li>
+        <li><a href="#internal-api">9. 内部 API（モジュール間インターフェース）</a></li>
+        <li><a href="#external-api">10. 外部 API（Google Drive API）</a></li>
+        <li><a href="#open-questions">11. 未決事項 / 検討課題</a></li>
+      </ol>
+    </nav>
+  </details>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section id="architecture">
+      <h2>1. アーキテクチャ概観</h2>
+      <p>
+        本アプリは <strong>サーバを持たない純粋なクライアントサイド SPA</strong> として設計する。
+        ユーザーの Drive データはブラウザを経由して Google Drive API と直接やり取りし、自前サーバには一切保存・転送しない。
+      </p>
+      <ul>
+        <li><strong>方式</strong>: Static SPA（HTML/CSS/JS をホスティングするだけ、サーバロジックなし）</li>
+        <li><strong>認証</strong>: Google Identity Services（GIS）の OAuth2 implicit-style トークンフロー（PKCE 相当）でクライアント側にアクセストークンを取得</li>
+        <li><strong>API 通信</strong>: ブラウザから直接 Google Drive API v3 を呼び出す</li>
+        <li><strong>状態保持</strong>: メモリ上のみ。リロードで状態リセット（プロダクト要求 NFR-04 / NFR-05）</li>
+      </ul>
+      <p>この設計により、サーバ側にユーザーのファイル内容やトークンが流れる経路が物理的に存在しないため、プライバシー要件（BR-2 / NFR-05）を構造的に満たす。</p>
+
+      <h3>1.1 採用しない方式とその理由</h3>
+      <table>
+        <thead><tr><th>方式</th><th>採用しない理由</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>サーバ側でトークン管理＋API中継</td>
+            <td>ファイル内容を経由させるとプライバシー要件と矛盾。サーバ運用コストも MVP には過剰。</td>
+          </tr>
+          <tr>
+            <td>ブラウザ拡張機能</td>
+            <td>NFR-06「追加インストール不要」と矛盾。</td>
+          </tr>
+          <tr>
+            <td>WebAssembly / Service Worker 常駐</td>
+            <td>MVP は「1回の複製」が完結すればよく、常駐は不要。</td>
+          </tr>
+          <tr>
+            <td>サーバサイドレンダリング</td>
+            <td>SEO 不要、初回読み込みも軽量で SSR の動機が薄い。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="system-diagram">
+      <h2>2. システム構成図</h2>
+
+      <figure>
+        <svg viewBox="0 0 780 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="システム構成図">
+          <defs>
+            <marker id="sys-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#4338ca"/>
+            </marker>
+          </defs>
+
+          <!-- User -->
+          <g>
+            <circle cx="50" cy="220" r="14" fill="#fff" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="50" y1="234" x2="50" y2="270" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="30" y1="250" x2="70" y2="250" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="50" y1="270" x2="34" y2="298" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="50" y1="270" x2="66" y2="298" stroke="#0f172a" stroke-width="1.5"/>
+            <text x="50" y="320" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">ユーザー</text>
+          </g>
+
+          <!-- Browser boundary -->
+          <rect x="140" y="60" width="380" height="360" fill="none" stroke="#4338ca" stroke-width="1.5" stroke-dasharray="6 4" rx="8"/>
+          <text x="330" y="80" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">ブラウザ（SPA）</text>
+
+          <!-- UI Layer -->
+          <rect x="160" y="100" width="340" height="60" rx="6" fill="#eef2ff" stroke="#4338ca"/>
+          <text x="330" y="124" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">UI レイヤー</text>
+          <text x="330" y="144" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">Login / Home / Progress / Report ビュー</text>
+
+          <!-- State Store -->
+          <rect x="160" y="180" width="160" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="240" y="204" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">State Store</text>
+          <text x="240" y="222" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">auth / job / ui</text>
+
+          <!-- Copy Engine -->
+          <rect x="340" y="180" width="160" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="420" y="204" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">Copy Engine</text>
+          <text x="420" y="222" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">再帰トラバース / 進捗 / 中止</text>
+
+          <!-- Drive API Client -->
+          <rect x="160" y="260" width="160" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="240" y="284" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">Drive API Client</text>
+          <text x="240" y="302" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">fetch + リトライ</text>
+
+          <!-- Auth Client -->
+          <rect x="340" y="260" width="160" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="420" y="284" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">Auth Client</text>
+          <text x="420" y="302" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">GIS / トークン取得</text>
+
+          <!-- Router -->
+          <rect x="160" y="340" width="340" height="50" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="330" y="370" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">Hash Router（#login / #home / #progress / #report）</text>
+
+          <!-- External: Google OAuth -->
+          <rect x="580" y="120" width="170" height="60" rx="6" fill="#fff" stroke="#0f172a"/>
+          <text x="665" y="144" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">Google OAuth</text>
+          <text x="665" y="162" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">accounts.google.com</text>
+
+          <!-- External: Google Drive API -->
+          <rect x="580" y="220" width="170" height="80" rx="6" fill="#fff" stroke="#0f172a"/>
+          <text x="665" y="244" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">Google Drive API</text>
+          <text x="665" y="262" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">www.googleapis.com</text>
+          <text x="665" y="280" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">files.get / list / copy / create</text>
+
+          <!-- Static hosting -->
+          <rect x="580" y="340" width="170" height="50" rx="6" fill="#fff" stroke="#0f172a"/>
+          <text x="665" y="362" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="#0f172a">Static Hosting</text>
+          <text x="665" y="378" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">（Pages / Netlify 等）</text>
+
+          <!-- User -> Browser -->
+          <line x1="64" y1="216" x2="158" y2="130" stroke="#4338ca" stroke-width="2" marker-end="url(#sys-arrow)"/>
+          <!-- Browser -> Static Hosting (initial load) -->
+          <line x1="500" y1="365" x2="578" y2="365" stroke="#4338ca" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#sys-arrow)"/>
+          <text x="540" y="358" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#475569">配信</text>
+
+          <!-- Auth Client -> Google OAuth -->
+          <line x1="500" y1="280" x2="578" y2="160" stroke="#4338ca" stroke-width="2" marker-end="url(#sys-arrow)"/>
+          <text x="555" y="220" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#475569">OAuth2</text>
+
+          <!-- Drive API Client -> Google Drive -->
+          <line x1="320" y1="290" x2="578" y2="252" stroke="#4338ca" stroke-width="2" marker-end="url(#sys-arrow)"/>
+          <text x="450" y="266" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#475569">REST</text>
+        </svg>
+        <figcaption>図1. システム構成（クライアントサイド SPA がブラウザから Google API を直接呼び出す）</figcaption>
+      </figure>
+
+      <h3>2.1 通信経路の整理</h3>
+      <table>
+        <thead><tr><th>From</th><th>To</th><th>プロトコル / 用途</th></tr></thead>
+        <tbody>
+          <tr><td>ブラウザ</td><td>Static Hosting</td><td>HTTPS / 初回ロード（HTML / JS / CSS の配信のみ）</td></tr>
+          <tr><td>ブラウザ</td><td>Google OAuth</td><td>HTTPS / OAuth2 認可フロー（トークン取得）</td></tr>
+          <tr><td>ブラウザ</td><td>Google Drive API</td><td>HTTPS / REST + Bearer トークン</td></tr>
+        </tbody>
+      </table>
+      <p>自前サーバ宛の通信は <strong>存在しない</strong>。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="data-model">
+      <h2>3. データモデル / ER 図</h2>
+      <p>永続データベースは持たないが、メモリ上の主要エンティティとそのリレーションを定義する。これにより状態管理の設計（次節）と整合する。</p>
+
+      <figure>
+        <svg viewBox="0 0 780 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ER図">
+          <!-- AuthState -->
+          <rect x="20" y="20" width="220" height="120" rx="4" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="130" y="40" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">AuthState</text>
+          <line x1="20" y1="48" x2="240" y2="48" stroke="#4338ca"/>
+          <text x="30" y="68" font-family="monospace" font-size="11" fill="#0f172a">accessToken: string | null</text>
+          <text x="30" y="86" font-family="monospace" font-size="11" fill="#0f172a">expiresAt: number | null</text>
+          <text x="30" y="104" font-family="monospace" font-size="11" fill="#0f172a">user: UserInfo | null</text>
+          <text x="30" y="122" font-family="monospace" font-size="11" fill="#0f172a">status: enum</text>
+
+          <!-- UserInfo -->
+          <rect x="280" y="20" width="220" height="100" rx="4" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="390" y="40" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">UserInfo</text>
+          <line x1="280" y1="48" x2="500" y2="48" stroke="#4338ca"/>
+          <text x="290" y="68" font-family="monospace" font-size="11" fill="#0f172a">id: string</text>
+          <text x="290" y="86" font-family="monospace" font-size="11" fill="#0f172a">email: string</text>
+          <text x="290" y="104" font-family="monospace" font-size="11" fill="#0f172a">name: string</text>
+
+          <!-- FolderMetadata -->
+          <rect x="540" y="20" width="220" height="140" rx="4" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="650" y="40" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">FolderMetadata</text>
+          <line x1="540" y1="48" x2="760" y2="48" stroke="#4338ca"/>
+          <text x="550" y="68" font-family="monospace" font-size="11" fill="#0f172a">id: string (PK)</text>
+          <text x="550" y="86" font-family="monospace" font-size="11" fill="#0f172a">name: string</text>
+          <text x="550" y="104" font-family="monospace" font-size="11" fill="#0f172a">parents: string[]</text>
+          <text x="550" y="122" font-family="monospace" font-size="11" fill="#0f172a">pathDisplay: string</text>
+          <text x="550" y="140" font-family="monospace" font-size="11" fill="#0f172a">itemCount: number</text>
+
+          <!-- CopyJob -->
+          <rect x="120" y="180" width="280" height="180" rx="4" fill="#eef2ff" stroke="#4338ca" stroke-width="1.5"/>
+          <text x="260" y="200" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">CopyJob</text>
+          <line x1="120" y1="208" x2="400" y2="208" stroke="#4338ca"/>
+          <text x="130" y="228" font-family="monospace" font-size="11" fill="#0f172a">id: string (PK)</text>
+          <text x="130" y="246" font-family="monospace" font-size="11" fill="#0f172a">sourceFolderId: string (FK)</text>
+          <text x="130" y="264" font-family="monospace" font-size="11" fill="#0f172a">destinationFolderId: string | null</text>
+          <text x="130" y="282" font-family="monospace" font-size="11" fill="#0f172a">destinationName: string</text>
+          <text x="130" y="300" font-family="monospace" font-size="11" fill="#0f172a">status: enum</text>
+          <text x="130" y="318" font-family="monospace" font-size="11" fill="#0f172a">startedAt: number</text>
+          <text x="130" y="336" font-family="monospace" font-size="11" fill="#0f172a">finishedAt: number | null</text>
+          <text x="130" y="354" font-family="monospace" font-size="11" fill="#0f172a">cancelRequested: boolean</text>
+
+          <!-- CopyJobItem -->
+          <rect x="440" y="180" width="280" height="180" rx="4" fill="#eef2ff" stroke="#4338ca" stroke-width="1.5"/>
+          <text x="580" y="200" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">CopyJobItem</text>
+          <line x1="440" y1="208" x2="720" y2="208" stroke="#4338ca"/>
+          <text x="450" y="228" font-family="monospace" font-size="11" fill="#0f172a">id: string (PK)</text>
+          <text x="450" y="246" font-family="monospace" font-size="11" fill="#0f172a">jobId: string (FK)</text>
+          <text x="450" y="264" font-family="monospace" font-size="11" fill="#0f172a">sourceId: string</text>
+          <text x="450" y="282" font-family="monospace" font-size="11" fill="#0f172a">sourceName: string</text>
+          <text x="450" y="300" font-family="monospace" font-size="11" fill="#0f172a">sourcePath: string</text>
+          <text x="450" y="318" font-family="monospace" font-size="11" fill="#0f172a">kind: 'folder' | 'file'</text>
+          <text x="450" y="336" font-family="monospace" font-size="11" fill="#0f172a">status: enum</text>
+          <text x="450" y="354" font-family="monospace" font-size="11" fill="#0f172a">errorMessage: string | null</text>
+
+          <!-- Report -->
+          <rect x="260" y="380" width="280" height="50" rx="4" fill="#fff" stroke="#4338ca" stroke-dasharray="3 3"/>
+          <text x="400" y="402" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#4338ca">Report (derived)</text>
+          <text x="400" y="420" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">CopyJob と CopyJobItem から導出される集計</text>
+
+          <!-- Relations -->
+          <!-- AuthState 1 -- 0..1 UserInfo -->
+          <line x1="240" y1="80" x2="280" y2="80" stroke="#475569"/>
+          <text x="248" y="74" font-family="sans-serif" font-size="10" fill="#475569">1</text>
+          <text x="270" y="74" font-family="sans-serif" font-size="10" fill="#475569">0..1</text>
+
+          <!-- CopyJob 1 -- 1 FolderMetadata (source) -->
+          <line x1="400" y1="246" x2="540" y2="100" stroke="#475569"/>
+          <text x="410" y="240" font-family="sans-serif" font-size="10" fill="#475569">1</text>
+          <text x="525" y="105" font-family="sans-serif" font-size="10" fill="#475569">1 (source)</text>
+
+          <!-- CopyJob 1 -- n CopyJobItem -->
+          <line x1="400" y1="270" x2="440" y2="270" stroke="#475569"/>
+          <text x="408" y="264" font-family="sans-serif" font-size="10" fill="#475569">1</text>
+          <text x="424" y="264" font-family="sans-serif" font-size="10" fill="#475569">n</text>
+
+          <!-- CopyJob -- Report -->
+          <line x1="260" y1="360" x2="350" y2="380" stroke="#475569" stroke-dasharray="3 3"/>
+        </svg>
+        <figcaption>図2. エンティティ関連図（メモリ上の構造）</figcaption>
+      </figure>
+
+      <h3>3.1 エンティティ定義</h3>
+
+      <h4>AuthState</h4>
+      <table>
+        <thead><tr><th>属性</th><th>型</th><th>説明</th></tr></thead>
+        <tbody>
+          <tr><td>accessToken</td><td>string | null</td><td>Google OAuth アクセストークン。メモリのみ保持</td></tr>
+          <tr><td>expiresAt</td><td>number | null</td><td>UNIX タイム（ms）。期限切れ判定用</td></tr>
+          <tr><td>user</td><td>UserInfo | null</td><td>ログイン中ユーザー情報</td></tr>
+          <tr><td>status</td><td>'unauthenticated' | 'authenticating' | 'authenticated'</td><td>認証ステータス</td></tr>
+        </tbody>
+      </table>
+
+      <h4>FolderMetadata</h4>
+      <table>
+        <thead><tr><th>属性</th><th>型</th><th>説明</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>string</td><td>Drive のファイル ID</td></tr>
+          <tr><td>name</td><td>string</td><td>フォルダ名</td></tr>
+          <tr><td>parents</td><td>string[]</td><td>親フォルダ ID 配列（Drive 仕様）</td></tr>
+          <tr><td>pathDisplay</td><td>string</td><td>UI 表示用のパス文字列（例: "マイドライブ / 仕事 / 大事な資料"）</td></tr>
+          <tr><td>itemCount</td><td>number</td><td>直下のアイテム数（プレビュー用）。再帰的な総数ではない</td></tr>
+          <tr><td>isInSharedDrive</td><td>boolean</td><td><code>files.get</code> のレスポンスで <code>driveId</code> が返れば true。本アプリでは false のみ受け付ける</td></tr>
+          <tr><td>destinationParentId</td><td>string</td><td>複製先親フォルダの ID。<code>parents[0]</code>、無ければ <code>"root"</code>（マイドライブ直下）</td></tr>
+          <tr><td>canDuplicateHere</td><td>boolean</td><td>複製先親階層への書き込み権限有無（<code>capabilities.canAddChildren</code>）。false ならプレビュー段階で「複製を開始」を不活性化</td></tr>
+        </tbody>
+      </table>
+
+      <h4>CopyJob</h4>
+      <table>
+        <thead><tr><th>属性</th><th>型</th><th>説明</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>string</td><td>UUID。クライアントで採番</td></tr>
+          <tr><td>sourceFolderId</td><td>string</td><td>複製元フォルダ ID</td></tr>
+          <tr><td>destinationFolderId</td><td>string | null</td><td>複製先フォルダ ID。作成完了後に設定</td></tr>
+          <tr><td>destinationName</td><td>string</td><td>"Copy of {sourceName}"</td></tr>
+          <tr><td>status</td><td>'idle' | 'preparing' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed'</td><td>ジョブの状態</td></tr>
+          <tr><td>startedAt / finishedAt</td><td>number | null</td><td>所要時間計算用</td></tr>
+          <tr><td>cancelRequested</td><td>boolean</td><td>ユーザーが中止を要求したか</td></tr>
+        </tbody>
+      </table>
+
+      <h4>CopyJobItem</h4>
+      <table>
+        <thead><tr><th>属性</th><th>型</th><th>説明</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>string</td><td>UUID（ジョブ内ユニーク）</td></tr>
+          <tr><td>jobId</td><td>string</td><td>所属 CopyJob ID</td></tr>
+          <tr><td>sourceId</td><td>string</td><td>元アイテムの Drive ID</td></tr>
+          <tr><td>sourceName</td><td>string</td><td>元アイテム名（UI 表示）</td></tr>
+          <tr><td>sourcePath</td><td>string</td><td>元アイテムの相対パス（レポートで使用）</td></tr>
+          <tr><td>kind</td><td>'folder' | 'file'</td><td>種別</td></tr>
+          <tr><td>status</td><td>'pending' | 'in_progress' | 'success' | 'skipped' | 'aborted'</td><td>個別アイテムの状態。<code>aborted</code> はユーザー中止により AbortController で中断された場合</td></tr>
+          <tr><td>errorMessage</td><td>string | null</td><td>スキップ理由（API エラーコードを含む）。<code>aborted</code> の場合は「ユーザーによる中止」</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Report（派生データ）</h4>
+      <p>CopyJob と CopyJobItem から導出される。永続化対象ではないが、SCR-004-report の表示と「レポートをコピー」機能のために型として定義する。</p>
+      <table>
+        <thead><tr><th>属性</th><th>型</th><th>説明</th></tr></thead>
+        <tbody>
+          <tr><td>jobId</td><td>string</td><td>—</td></tr>
+          <tr><td>successCount</td><td>number</td><td>status='success' の件数</td></tr>
+          <tr><td>skipCount</td><td>number</td><td>status='skipped' の件数</td></tr>
+          <tr><td>durationMs</td><td>number</td><td>finishedAt - startedAt</td></tr>
+          <tr><td>destinationUrl</td><td>string</td><td><code>https://drive.google.com/drive/folders/{destinationFolderId}</code></td></tr>
+          <tr><td>skippedItems</td><td>CopyJobItem[]</td><td>スキップアイテムの詳細</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="component-design">
+      <h2>4. コンポーネント設計</h2>
+      <p>UI レイヤーとロジック層の関係を以下に示す。フレームワーク選定は <a href="architecture.html">技術仕様書</a> 参照のこと（本設計はフレームワーク非依存）。</p>
+
+      <h3>4.1 レイヤー</h3>
+      <table>
+        <thead><tr><th>レイヤー</th><th>責務</th><th>所属モジュール</th></tr></thead>
+        <tbody>
+          <tr><td>UI（View）</td><td>DOM の描画、ユーザー入力の受付</td><td>LoginView / HomeView / ProgressView / ReportView</td></tr>
+          <tr><td>Shared UI</td><td>画面横断で再利用するコンポーネント</td><td>Header / Toast / ConfirmDialog / Spinner / ProgressBar</td></tr>
+          <tr><td>State Store</td><td>アプリ全体のメモリ状態を保持・購読</td><td>store（auth / job / ui 各スライス）</td></tr>
+          <tr><td>Domain Logic</td><td>業務処理</td><td>CopyEngine（再帰トラバース / 進捗イベント）／ UrlParser（共有 URL → folderId）／ ReportBuilder</td></tr>
+          <tr><td>Infrastructure</td><td>外部 IO</td><td>AuthClient（GIS ラッパー）／ DriveApiClient（fetch + リトライ）</td></tr>
+          <tr><td>Routing</td><td>URL ハッシュと現在ビューの対応</td><td>Router</td></tr>
+        </tbody>
+      </table>
+
+      <h3>4.2 主要モジュールの責務</h3>
+
+      <h4>CopyEngine</h4>
+      <ul>
+        <li>引数: 複製元 FolderMetadata、DriveApiClient、進捗コールバック</li>
+        <li>処理: 複製先フォルダ作成 → 子要素を BFS でトラバース → 各アイテムを複製 → 進捗イベントを通知</li>
+        <li>状態: cancelRequested を見て次のアイテム処理前に停止判定</li>
+        <li>出力: CopyJob と全 CopyJobItem の最終状態</li>
+      </ul>
+
+      <h4>UrlParser</h4>
+      <ul>
+        <li>入力: ユーザーが貼り付けた文字列</li>
+        <li>許容形式:
+          <ul>
+            <li><code>https://drive.google.com/drive/folders/{id}</code>（一般的な共有 URL）</li>
+            <li><code>https://drive.google.com/drive/folders/{id}?usp=sharing</code></li>
+            <li><code>https://drive.google.com/open?id={id}</code></li>
+            <li><code>https://drive.google.com/drive/u/0/folders/{id}</code></li>
+            <li>ID 単独（30 文字前後の英数字 + アンダースコア / ハイフン）</li>
+          </ul>
+        </li>
+        <li>出力: <code>{ id: string }</code> または <code>{ error: 'INVALID_URL' }</code></li>
+      </ul>
+
+      <h4>DriveApiClient</h4>
+      <ul>
+        <li>共通: Bearer ヘッダー付与、JSON シリアライズ／パース、レスポンスステータスごとのエラー分類</li>
+        <li>メソッド: getFile / listChildren / createFolder / copyFile（次節「内部 API」参照）</li>
+        <li>リトライ: 429 / 5xx は指数バックオフ（1s → 2s → 4s → 8s → 16s、最大 5 回）</li>
+        <li>並列制御: 同時 4 リクエストまで（セマフォ実装）</li>
+      </ul>
+
+      <h4>AuthClient</h4>
+      <ul>
+        <li>Google Identity Services（GIS）の <code>google.accounts.oauth2.initTokenClient</code> をラップ</li>
+        <li>メソッド: signIn() / signOut() / getToken() / onTokenExpired()</li>
+        <li>スコープ: <code>https://www.googleapis.com/auth/drive.file</code> + <code>https://www.googleapis.com/auth/drive.readonly</code>（後述「外部 API」節で詳細）</li>
+      </ul>
+
+      <h3>4.3 依存関係</h3>
+      <figure>
+        <svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="モジュール依存関係">
+          <defs>
+            <marker id="dep-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#4338ca"/>
+            </marker>
+          </defs>
+
+          <rect x="20" y="20" width="640" height="60" rx="6" fill="#eef2ff" stroke="#4338ca"/>
+          <text x="340" y="55" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">UI レイヤー（LoginView / HomeView / ProgressView / ReportView + Shared）</text>
+
+          <rect x="20" y="110" width="300" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="170" y="145" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">State Store（auth / job / ui）</text>
+
+          <rect x="360" y="110" width="300" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="510" y="145" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">Domain（CopyEngine / UrlParser / ReportBuilder）</text>
+
+          <rect x="20" y="200" width="300" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="170" y="235" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">AuthClient</text>
+
+          <rect x="360" y="200" width="300" height="60" rx="6" fill="#f1f5f9" stroke="#4338ca"/>
+          <text x="510" y="235" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="#0f172a">DriveApiClient</text>
+
+          <line x1="200" y1="80" x2="200" y2="108" stroke="#4338ca" stroke-width="1.5" marker-end="url(#dep-arrow)"/>
+          <line x1="480" y1="80" x2="480" y2="108" stroke="#4338ca" stroke-width="1.5" marker-end="url(#dep-arrow)"/>
+          <line x1="240" y1="170" x2="240" y2="198" stroke="#4338ca" stroke-width="1.5" marker-end="url(#dep-arrow)"/>
+          <line x1="510" y1="170" x2="510" y2="198" stroke="#4338ca" stroke-width="1.5" marker-end="url(#dep-arrow)"/>
+          <line x1="510" y1="170" x2="320" y2="200" stroke="#4338ca" stroke-width="1.5" marker-end="url(#dep-arrow)"/>
+        </svg>
+        <figcaption>図3. モジュール依存（上→下、矢印は「依存する」方向）</figcaption>
+      </figure>
+      <p>循環依存は禁止。State Store は Domain・Auth を呼ぶが、Domain・Auth は State Store を直接参照しない（依存性逆転：必要な情報は引数で渡す）。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="state-management">
+      <h2>5. 状態管理</h2>
+      <p>シンプルな pub/sub ストア（または採用フレームワークの状態管理機構）を使い、以下のスライスに分割する。</p>
+
+      <h3>5.1 ストア構造</h3>
+      <pre><code>RootState = {
+  auth: AuthState,           // 認証状態
+  currentJob: CopyJob | null, // 進行中 / 直前のジョブ
+  jobItems: CopyJobItem[],   // 現ジョブのアイテム配列
+  ui: {
+    currentScreen: 'login' | 'home' | 'progress' | 'report',
+    folderInput: string,                    // URL 入力欄
+    folderPreview: FolderMetadata | null,   // プレビュー
+    folderPreviewError: string | null,
+    toasts: ToastItem[],
+    modal: ModalSpec | null
+  }
+}</code></pre>
+
+      <h3>5.2 アクション一覧</h3>
+      <table>
+        <thead><tr><th>アクション</th><th>影響範囲</th><th>説明</th></tr></thead>
+        <tbody>
+          <tr><td>auth.signInRequested</td><td>auth.status</td><td>'authenticating' に遷移、GIS を呼ぶ</td></tr>
+          <tr><td>auth.signInSucceeded(token, user)</td><td>auth.*</td><td>トークンと user 情報を保存、currentScreen を 'home' に</td></tr>
+          <tr><td>auth.signInFailed(reason)</td><td>auth.status, ui.toasts</td><td>'unauthenticated' に戻し、トーストを発火</td></tr>
+          <tr><td>auth.signOut</td><td>全体リセット</td><td>currentScreen='login'、ジョブ中なら確認モーダルを開く</td></tr>
+          <tr><td>auth.tokenExpired</td><td>auth.*, ui.toasts</td><td>'login' へ戻す、トーストで通知</td></tr>
+          <tr><td>folderInput.changed(value)</td><td>ui.folderInput</td><td>—</td></tr>
+          <tr><td>folderPreview.fetchRequested</td><td>ui.folderPreview, ui.folderPreviewError</td><td>取得開始</td></tr>
+          <tr><td>folderPreview.fetchSucceeded(meta)</td><td>ui.folderPreview</td><td>プレビュー表示</td></tr>
+          <tr><td>folderPreview.fetchFailed(message)</td><td>ui.folderPreviewError</td><td>エラー文言表示</td></tr>
+          <tr><td>job.startRequested</td><td>currentJob, currentScreen</td><td>新規ジョブを作って 'progress' へ遷移、CopyEngine を起動</td></tr>
+          <tr><td>job.itemStarted(item)</td><td>jobItems</td><td>処理中アイテムを更新</td></tr>
+          <tr><td>job.itemFinished(itemId, result)</td><td>jobItems</td><td>success or skipped を確定</td></tr>
+          <tr><td>job.cancelRequested</td><td>currentJob.cancelRequested</td><td>—</td></tr>
+          <tr><td>job.finished</td><td>currentJob.status, currentScreen</td><td>'completed' or 'cancelled' へ → 'report' に遷移</td></tr>
+          <tr><td>ui.toastShown(toast)</td><td>ui.toasts</td><td>—</td></tr>
+          <tr><td>ui.modalOpened(spec) / closed</td><td>ui.modal</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <h3>5.3 ジョブのライフサイクル</h3>
+      <figure>
+        <svg viewBox="0 0 760 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ジョブ状態遷移図">
+          <defs>
+            <marker id="job-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#4338ca"/>
+            </marker>
+          </defs>
+
+          <rect x="20" y="80" width="100" height="40" rx="20" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="70" y="105" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">idle</text>
+
+          <rect x="160" y="80" width="100" height="40" rx="20" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="210" y="105" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">preparing</text>
+
+          <rect x="300" y="80" width="100" height="40" rx="20" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="350" y="105" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">running</text>
+
+          <rect x="440" y="20" width="120" height="40" rx="20" fill="#f8fafc" stroke="#4338ca"/>
+          <text x="500" y="45" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">cancelling</text>
+
+          <rect x="440" y="80" width="120" height="40" rx="20" fill="#fff7ed" stroke="#d97706"/>
+          <text x="500" y="105" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">completed</text>
+
+          <rect x="440" y="140" width="120" height="40" rx="20" fill="#fff7ed" stroke="#d97706"/>
+          <text x="500" y="165" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">cancelled</text>
+
+          <rect x="600" y="80" width="100" height="40" rx="20" fill="#fef2f2" stroke="#dc2626"/>
+          <text x="650" y="105" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">failed</text>
+
+          <line x1="120" y1="100" x2="158" y2="100" stroke="#4338ca" stroke-width="1.5" marker-end="url(#job-arrow)"/>
+          <line x1="260" y1="100" x2="298" y2="100" stroke="#4338ca" stroke-width="1.5" marker-end="url(#job-arrow)"/>
+          <line x1="400" y1="100" x2="438" y2="100" stroke="#4338ca" stroke-width="1.5" marker-end="url(#job-arrow)"/>
+          <line x1="380" y1="80" x2="450" y2="60" stroke="#4338ca" stroke-width="1.5" marker-end="url(#job-arrow)"/>
+          <line x1="500" y1="60" x2="500" y2="78" stroke="#4338ca" stroke-width="1.5" marker-end="url(#job-arrow)"/>
+          <line x1="500" y1="60" x2="500" y2="140" stroke="#4338ca" stroke-width="1.5" marker-end="url(#job-arrow)"/>
+          <line x1="400" y1="100" x2="600" y2="100" stroke="#4338ca" stroke-width="1.5" marker-end="url(#job-arrow)" stroke-dasharray="4 3"/>
+
+          <text x="135" y="74" font-family="sans-serif" font-size="10" fill="#475569">start</text>
+          <text x="278" y="74" font-family="sans-serif" font-size="10" fill="#475569">複製先作成</text>
+          <text x="405" y="74" font-family="sans-serif" font-size="10" fill="#475569">cancel</text>
+          <text x="565" y="74" font-family="sans-serif" font-size="10" fill="#475569">致命的エラー</text>
+        </svg>
+        <figcaption>図4. CopyJob 状態遷移</figcaption>
+      </figure>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="persistence">
+      <h2>6. 永続化方針</h2>
+      <table>
+        <thead><tr><th>データ</th><th>保存先</th><th>理由</th></tr></thead>
+        <tbody>
+          <tr><td>アクセストークン</td><td>JS メモリのみ</td><td>NFR-04 準拠。盗難リスクを最小化</td></tr>
+          <tr><td>ユーザー情報（email / name）</td><td>JS メモリのみ</td><td>同上</td></tr>
+          <tr><td>CopyJob / CopyJobItem</td><td>JS メモリのみ</td><td>1 回完結の MVP では永続化不要。リロード時はやり直し</td></tr>
+          <tr><td>UI 状態（モーダル・トースト）</td><td>JS メモリのみ</td><td>—</td></tr>
+          <tr><td>URL 入力欄の文字列</td><td>JS メモリのみ</td><td>セッション中のみ保持。リロードでクリア</td></tr>
+          <tr><td>言語設定 / テーマ</td><td>MVP では持たない</td><td>システムテーマに従う</td></tr>
+        </tbody>
+      </table>
+      <p>
+        将来「実行履歴を残したい」要望が出た場合は <strong>OPFS（Origin Private File System）</strong> または
+        <strong>IndexedDB</strong> をクライアント側にのみ用意し、サーバには送らない方針とする。
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="copy-algorithm">
+      <h2>7. フォルダ複製アルゴリズム</h2>
+
+      <h3>7.1 全体フロー（疑似コード）</h3>
+      <p>
+        前提: <code>CopyEngine</code> は 1 つの AbortController を内部に持ち、すべての <code>driveApi.*</code> 呼び出しに同じ <code>signal</code> を渡す。
+        ユーザー操作「中止」で <code>controller.abort()</code> が呼ばれると、進行中の全 fetch が <code>AbortError</code> で失敗し、即座にループを抜ける。
+      </p>
+      <p>
+        <strong>2 フェーズ進捗（2026-05-29 設計確定）</strong>:
+        ローカル動作確認で「分母が処理中に増える」UX が分かりにくいと判明したため、
+        Phase 1（集計）で先に総数を確定 → Phase 2（複製）で正確な進捗バーを表示する 2 段方式に変更した。
+        集計フェーズで列挙した children をキャッシュして複製フェーズで再利用するため、API 呼び出し総数は増えない。
+      </p>
+      <pre><code>function startCopy(sourceFolderId):
+  controller = new AbortController()
+  signal = controller.signal
+  childrenCache = new Map()   // folderId -> DriveFileResource[]
+
+  // (1) 元フォルダのメタデータ取得（共有ドライブ判定を含む）
+  src = driveApi.getFolder(sourceFolderId,
+        fields = "id,name,parents,driveId,capabilities", signal)
+  if src.driveId is set:
+    throw 'SHARED_DRIVE_UNSUPPORTED'
+
+  // (2) 複製先親階層の決定
+  destinationParent = src.parents.length > 0 ? src.parents[0] : 'root'
+
+  // (3) 親階層への書き込み権限を事前チェック（root 以外）
+  if destinationParent != 'root':
+    parent = driveApi.getFolder(destinationParent,
+             fields = "id,capabilities", signal)
+    if not parent.capabilities.canAddChildren:
+      throw 'NO_PARENT_WRITE_PERMISSION'
+
+  // (4) 連番付与で空いている名前を決定（§7.5 参照）
+  destinationName = findAvailableName("Copy of " + src.name, destinationParent, signal)
+
+  // ============================================================
+  // Phase 1: 集計（BFS で全アイテム列挙 + キャッシュ + total 確定）
+  // ============================================================
+  progress.phase = 'counting'
+  countQueue = [{ id: sourceFolderId, name: src.name }]
+  while countQueue is not empty:
+    if signal.aborted: throw AbortError
+    current = countQueue.shift()
+    progress.currentItemName = current.name
+    emit(progress)
+
+    children = driveApi.listAllChildren(current.id, signal)
+    childrenCache.set(current.id, children)
+    progress.total += children.length
+    emit(progress)
+
+    for child in children:
+      if child is folder:
+        countQueue.push({ id: child.id, name: child.name })
+
+  // (5) 複製先フォルダ作成（集計後 — 中止時にゴミが残らない）
+  dst = driveApi.createFolder(destinationName, destinationParent, signal)
+  job.destinationFolderId = dst.id
+  job.status = 'running'
+
+  // ============================================================
+  // Phase 2: 複製（キャッシュした children を使い、API は増えない）
+  // ============================================================
+  progress.phase = 'copying'
+  queue = [{ srcId: sourceFolderId, dstId: dst.id, path: src.name }]
+
+  while queue is not empty:
+    if signal.aborted: break
+    current = queue.shift()
+    children = childrenCache.get(current.srcId)  // ★ キャッシュから取り出す
+
+    // 同階層の子要素を並列で処理（Promise.allSettled、実効並列度は
+    // DriveApiClient のセマフォで 4 に制限）
+    results = await Promise.allSettled(children.map(child => processChild(child, current)))
+
+    if any result is AbortError: break
+
+  job.finishedAt = now()
+  job.status = signal.aborted ? 'cancelled' : 'completed'
+  emit('job.finished')
+
+function processChild(child, parent):
+  jobItem = recordItemStart(child, parent.path)
+  try:
+    if child is folder:
+      newFolder = driveApi.createFolder(child.name, parent.dstId, signal)
+      queue.push({ srcId: child.id, dstId: newFolder.id, path: parent.path + "/" + child.name })
+    else:
+      driveApi.copyFile(child.id, parent.dstId, signal)
+    markSuccess(jobItem)
+  catch err:
+    if err.name == 'AbortError':
+      markAborted(jobItem)
+      throw
+    markSkipped(jobItem, err.message)
+
+function cancel():
+  controller.abort()</code></pre>
+
+      <h3>7.2 並列度</h3>
+      <p>
+        単純逐次は遅いが、過剰な並列は 429 を誘発する。<strong>同階層内の子要素について、同時 4 件まで並列</strong>とする（セマフォで制御）。
+        フォルダ作成だけは順序が必要なため逐次（親 → 子）。
+      </p>
+
+      <h3>7.3 サブフォルダの扱い</h3>
+      <ul>
+        <li>サブフォルダは <code>files.copy</code> では複製できない。<code>files.create</code> で空フォルダを作り直し、中身を再帰的にコピーする</li>
+        <li>これにより元フォルダの ACL（共有設定）・コメント・版履歴は <strong>引き継がれない</strong>（MVP ではこれを許容、要件 C-3）</li>
+      </ul>
+
+      <h3>7.4 ショートカット（application/vnd.google-apps.shortcut）の扱い</h3>
+      <ul>
+        <li>子要素が <code>mimeType === 'application/vnd.google-apps.shortcut'</code> の場合、ショートカットアイテムとしてそのまま <code>files.copy</code> で複製</li>
+        <li>リンク先実体までは追従しない（要件 C-4）</li>
+      </ul>
+
+      <h3>7.5 同名複製先の扱い（連番付与）</h3>
+      <p>
+        「Copy of {元名}」と同じ名前のフォルダが同一親階層にすでに存在する場合、
+        <strong>「Copy of {元名} (2)」「Copy of {元名} (3)」… のように連番を自動付与</strong>して衝突を回避する。
+        Drive は同名併存自体は許容するが、ユーザー側で「どれが今回の複製か」を区別できなくなるため連番方式とする。
+      </p>
+
+      <h4>findAvailableName アルゴリズム</h4>
+      <pre><code>function findAvailableName(baseName, parentId, signal):
+  // 1. baseName と "baseName (2)" 〜 "baseName (10)" を 1 回の files.list で検索
+  query = `'\${parentId}' in parents and trashed=false and (
+            name='\${baseName}' or
+            name='\${baseName} (2)' or
+            ... or
+            name='\${baseName} (10)'
+          )`
+  existing = driveApi.listChildren(parentId,
+             { q: query, fields: "files(name)", signal }).items
+  existingNames = new Set(existing.map(f => f.name))
+
+  if not existingNames.has(baseName):
+    return baseName
+  for n in 2..10:
+    candidate = `\${baseName} (\${n})`
+    if not existingNames.has(candidate):
+      return candidate
+
+  // 2. 10 を超える場合は (11) 以降を 1 件ずつ問い合わせ（実用上は稀）
+  for n in 11..99:
+    exists = driveApi.checkExists(parentId, `\${baseName} (\${n})`, signal)
+    if not exists:
+      return `\${baseName} (\${n})`
+
+  throw 'TOO_MANY_DUPLICATES'   // 99 まで埋まっていることはまずない</code></pre>
+      <p>事前に 10 件まではバッチで取得し、API 呼び出しを 1 回に抑える。それ以上は実用ケースとして稀なので逐次照会で十分。</p>
+
+      <h3>7.6 中止時の挙動（AbortController による中断）</h3>
+      <ul>
+        <li>CopyEngine 内に 1 つの AbortController を保持。<code>cancel()</code> で <code>controller.abort()</code> を呼ぶ</li>
+        <li>すべての <code>fetch</code>（DriveApiClient 経由）に同じ <code>signal</code> を渡しているため、進行中のリクエストが即座に <code>AbortError</code> で失敗する</li>
+        <li>各アイテムの処理で <code>AbortError</code> を識別したら、そのアイテムを <code>aborted</code> ステータスで記録し、例外を上位に伝播させてループを抜ける</li>
+        <li>通常のエラー（403 / 404 / 5xx）は従来通りスキップして続行する。<code>AbortError</code> のみが中断扱い</li>
+        <li>すでに作成済みの複製先フォルダおよび複製済みファイルは <strong>削除しない</strong>（要件 FR-14 準拠）</li>
+        <li>SCR-004-report で「中止」見出しと、それまでの成功件数 / 中止件数を表示する</li>
+      </ul>
+      <p>
+        進行中のリクエストを途中で中断するため、サーバ側で複製処理が一部完了している可能性がある（例: <code>files.copy</code> で複製が始まったがレスポンス前に中断された場合）。
+        その場合、複製先に「想定外の余分なファイル」が残ることがあるが、元データには影響しないため許容する。
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="error-handling">
+      <h2>8. エラーハンドリング</h2>
+
+      <h3>8.1 エラー分類と対応方針</h3>
+      <table>
+        <thead>
+          <tr><th>分類</th><th>典型ステータス / 状況</th><th>対応方針</th><th>UI 影響</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>認証エラー</td>
+            <td>401 unauthenticated / トークン期限切れ</td>
+            <td>処理を中断し SCR-001-login に戻す</td>
+            <td>トースト「セッションが切れました。再度ログインしてください。」</td>
+          </tr>
+          <tr>
+            <td>権限エラー（個別アイテム）</td>
+            <td>403 insufficientPermissions（個別ファイル）</td>
+            <td><strong>スキップ</strong>して次へ進む</td>
+            <td>スキップ件数増、レポートに理由表示</td>
+          </tr>
+          <tr>
+            <td>権限エラー（親階層への書き込み）</td>
+            <td><code>capabilities.canAddChildren=false</code>（非オーナー編集可フォルダで複製先親に書き込めない場合）</td>
+            <td>ジョブ開始前に <code>files.get(fields=capabilities)</code> で事前検出し、<strong>複製を開始しない</strong>。プレビュー段階で「複製可能」を false とする</td>
+            <td>SCR-002-home でエラー文言を表示し「複製を開始」を不活性化（自動フォールバックはしない）</td>
+          </tr>
+          <tr>
+            <td>共有ドライブ未対応</td>
+            <td><code>files.get</code> のレスポンスに <code>driveId</code> が含まれる</td>
+            <td>プレビュー段階で拒否</td>
+            <td>SCR-002-home に「共有ドライブ内のフォルダはサポートしていません」を表示</td>
+          </tr>
+          <tr>
+            <td>中止（ユーザー操作）</td>
+            <td><code>AbortError</code>（CopyEngine の <code>cancel()</code> 起因）</td>
+            <td>中断対象アイテムを <code>aborted</code> として記録し、ループを抜けてレポート画面へ</td>
+            <td>SCR-003-progress → SCR-004-report に遷移、見出しは「⚠ 複製を中止しました」</td>
+          </tr>
+          <tr>
+            <td>クォータ超過</td>
+            <td>403 storageQuotaExceeded</td>
+            <td>スキップ（容量不足の個別ファイル）<br>※ 全体的に書き込み不能の場合は致命的エラーとして中断</td>
+            <td>スキップ件数増 ／ 致命の場合トースト＋レポートへ</td>
+          </tr>
+          <tr>
+            <td>レートリミット</td>
+            <td>429 / 403 userRateLimitExceeded</td>
+            <td>指数バックオフでリトライ（最大 5 回）。<br>5 回失敗したら個別アイテムはスキップ</td>
+            <td>進捗画面に「API 制限のため待機中（◯秒）」</td>
+          </tr>
+          <tr>
+            <td>サーバエラー</td>
+            <td>5xx</td>
+            <td>指数バックオフでリトライ（最大 5 回）→ ダメならスキップ</td>
+            <td>レポートに理由表示</td>
+          </tr>
+          <tr>
+            <td>Not Found</td>
+            <td>404</td>
+            <td>個別ファイル: スキップ ／ プレビュー取得時: フォーム上にエラー文言</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>ネットワーク切断</td>
+            <td>fetch 例外 / オフライン</td>
+            <td>30 秒間リトライ。回復しなければジョブを 'failed' にしてレポートへ</td>
+            <td>トースト「ネットワークに接続できません。回復を待っています…」</td>
+          </tr>
+          <tr>
+            <td>クライアントバグ</td>
+            <td>Unhandled exception</td>
+            <td>console.error で記録、ジョブを 'failed' に。再現手順をコピーできるエラーパネルを表示</td>
+            <td>レポート画面に「予期しないエラーが発生しました」</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>8.2 指数バックオフ仕様</h3>
+      <ul>
+        <li>初回待機: 1 秒 + ジッタ 0〜500ms</li>
+        <li>2回目以降: 直前待機 × 2 + ジッタ。上限 30 秒</li>
+        <li>最大リトライ回数: 5</li>
+        <li>HTTP 429 / 500 / 502 / 503 / 504 / ネットワーク例外でのみ発火</li>
+      </ul>
+
+      <h3>8.3 スキップ理由のフォーマット</h3>
+      <p>レポート画面およびコピー用テキストでは、以下の形式で表示する。</p>
+      <pre><code>{HTTPステータス}: {一行サマリー}
+詳細: {Drive API エラーレスポンスの reason フィールド}
+所在: {アイテムの相対パス}</code></pre>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="internal-api">
+      <h2>9. 内部 API（モジュール間インターフェース）</h2>
+      <p>TypeScript 風のシグネチャで主要関数を列挙する。実装言語に応じて読み替える。</p>
+
+      <h3>9.1 AuthClient</h3>
+      <pre><code>signIn(): Promise&lt;{ accessToken: string; expiresInSec: number; user: UserInfo }&gt;
+signOut(): void
+getToken(): string | null
+isExpired(): boolean
+onTokenExpired(handler: () => void): void</code></pre>
+
+      <h3>9.2 UrlParser</h3>
+      <pre><code>parseFolderUrl(input: string): { ok: true; folderId: string } | { ok: false; reason: 'INVALID_URL' | 'NOT_A_FOLDER' }</code></pre>
+
+      <h3>9.3 DriveApiClient</h3>
+      <p>全メソッドが <code>signal?: AbortSignal</code> を受け取り、内部の <code>fetch</code> に伝搬する。<code>AbortError</code> は呼び出し側で識別する。</p>
+      <pre><code>getFolder(folderId: string, options?: {
+  fields?: string;             // 既定: "id,name,parents,driveId,capabilities"
+  signal?: AbortSignal;
+}): Promise&lt;FolderMetadata&gt;
+
+listChildren(folderId: string, options?: {
+  pageToken?: string;
+  q?: string;                  // 既定: "'{folderId}' in parents and trashed=false"
+  fields?: string;
+  signal?: AbortSignal;
+}): Promise&lt;{ items: DriveItem[]; nextPageToken?: string }&gt;
+
+listAllChildren(folderId: string, options?: { signal?: AbortSignal }): Promise&lt;DriveItem[]&gt;
+// ↑ ページネーション全消化
+
+createFolder(name: string, parentId: string, options?: { signal?: AbortSignal }): Promise&lt;DriveItem&gt;
+
+copyFile(sourceFileId: string, newParentId: string, options?: {
+  newName?: string;
+  signal?: AbortSignal;
+}): Promise&lt;DriveItem&gt;
+
+findAvailableName(baseName: string, parentId: string, options?: { signal?: AbortSignal }): Promise&lt;string&gt;
+// ↑ §7.5 の連番付与ロジック</code></pre>
+
+      <h3>9.4 CopyEngine</h3>
+      <pre><code>start(sourceFolderId: string, callbacks: {
+  onJobStarted: (job: CopyJob) => void;
+  onItemStarted: (item: CopyJobItem) => void;
+  onItemFinished: (item: CopyJobItem) => void;
+  onJobFinished: (job: CopyJob, items: CopyJobItem[]) => void;
+  onProgress: (snapshot: ProgressSnapshot) => void;
+  // ProgressSnapshot.total は処理中に増加する可能性がある（再帰列挙と複製を並行するため）
+}): {
+  cancel: () => void;          // 内部 AbortController を abort する
+  done: Promise&lt;void&gt;;          // 完了 / 中止のいずれかで resolve
+}</code></pre>
+      <p>事前バリデーション（共有ドライブ判定 / 親階層書込権限）は本メソッド冒頭で行い、満たさない場合は <code>onJobFinished</code> を <code>'failed'</code> ステータスで呼ぶ。SCR-002-home 側はそもそも「複製を開始」を不活性化しているため、ここに来る経路は通常存在しないが、競合（権限が直前に剥奪された等）への保険として残す。</p>
+
+      <h3>9.5 ReportBuilder</h3>
+      <pre><code>build(job: CopyJob, items: CopyJobItem[]): Report
+toPlainText(report: Report): string                  // 「レポートをコピー」用</code></pre>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="external-api">
+      <h2>10. 外部 API（Google Drive API）</h2>
+
+      <h3>10.1 OAuth スコープ</h3>
+      <table>
+        <thead><tr><th>スコープ</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>https://www.googleapis.com/auth/drive.readonly</code></td>
+            <td>元フォルダのメタデータ取得・子要素一覧の取得（読み取り）</td>
+          </tr>
+          <tr>
+            <td><code>https://www.googleapis.com/auth/drive.file</code></td>
+            <td>本アプリが作成したファイル・フォルダへの書き込み</td>
+          </tr>
+          <tr>
+            <td><code>openid email profile</code></td>
+            <td>ログイン中ユーザー情報（email / name）の取得</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        <strong>本構成は確定（2026-05-28）</strong>。<code>drive.file</code> は「本アプリが作成・開いたファイル」しかアクセスできないため、URL 貼り付け方式（ユーザー任意のフォルダ ID にアクセス）を支えるには <code>drive.readonly</code> の併用が必須。
+        Picker API への移行で <code>drive.file</code> 単独化する代替案は検討したが、URL 貼り付け方式の UX と両立しないため<strong>採用しない</strong>こととした（プロダクト要求 §3.2 参照）。
+      </p>
+
+      <h3>10.2 使用エンドポイント</h3>
+      <table>
+        <thead>
+          <tr><th>用途</th><th>メソッド</th><th>エンドポイント</th><th>主要パラメータ</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>フォルダメタデータ取得</td>
+            <td>GET</td>
+            <td><code>/drive/v3/files/{folderId}</code></td>
+            <td><code>fields=id,name,mimeType,parents,driveId,capabilities(canAddChildren,canCopy)</code><br>
+              ・<code>driveId</code> が返れば共有ドライブとして拒否<br>
+              ・親フォルダの <code>capabilities.canAddChildren</code> で書き込み権限を事前確認</td>
+          </tr>
+          <tr>
+            <td>子要素一覧取得</td>
+            <td>GET</td>
+            <td><code>/drive/v3/files</code></td>
+            <td><code>q='{parentId}' in parents and trashed=false</code><br><code>fields=files(id,name,mimeType,size),nextPageToken</code><br><code>pageSize=200</code></td>
+          </tr>
+          <tr>
+            <td>フォルダ作成</td>
+            <td>POST</td>
+            <td><code>/drive/v3/files</code></td>
+            <td>body: <code>{ name, mimeType: 'application/vnd.google-apps.folder', parents: [destinationParentId] }</code></td>
+          </tr>
+          <tr>
+            <td>ファイル複製</td>
+            <td>POST</td>
+            <td><code>/drive/v3/files/{fileId}/copy</code></td>
+            <td>body: <code>{ parents: [destinationParentId] }</code><br><code>fields=id,name</code></td>
+          </tr>
+          <tr>
+            <td>ユーザー情報取得</td>
+            <td>GET</td>
+            <td><code>/oauth2/v3/userinfo</code></td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>10.3 共通リクエストヘッダー</h3>
+      <pre><code>Authorization: Bearer {accessToken}
+Accept: application/json
+Content-Type: application/json   // POST のみ</code></pre>
+
+      <h3>10.4 ページネーション</h3>
+      <p>listChildren は <code>nextPageToken</code> が返らなくなるまで繰り返し呼ぶ。1 ページあたり 200 件を上限とする（API のデフォルト 100 より大きいが、Drive のドキュメント上限 1000 内）。</p>
+
+      <h3>10.5 サンプル: ファイル複製レスポンス</h3>
+      <pre><code>POST /drive/v3/files/{fileId}/copy?fields=id,name,parents
+Authorization: Bearer ya29.A0Af...
+
+{
+  "parents": ["1AbC...destinationFolderId"]
+}
+
+→ 200 OK
+{
+  "id": "1XyZ...newFileId",
+  "name": "議事録_2026Q1.docx",
+  "parents": ["1AbC...destinationFolderId"]
+}</code></pre>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="open-questions">
+      <h2>11. 未決事項 / 検討課題</h2>
+
+      <h3>11.1 確定済み</h3>
+      <ol>
+        <li>
+          <strong>OAuth スコープ</strong>（2026-05-28 確定）→ <code>drive.readonly + drive.file + openid email profile</code> で確定。Picker API への移行は採用しない（URL 貼り付け方式と両立しないため）。詳細 <a href="#external-api">§10.1</a>。
+        </li>
+        <li>
+          <strong>進捗 total の算出方法</strong>（2026-05-29 設計変更で確定）→ <strong>2 フェーズ方式</strong>に変更。Phase 1（counting）で全アイテムを事前列挙して total を確定し、Phase 2（copying）で正確な進捗バーを表示。当初の「逐次更新」案は動作確認の結果「ユーザーが終わりを予測できない」と判明したため撤回。<a href="#copy-algorithm">§7.1</a> 参照。
+        </li>
+        <li>
+          <strong>プレビューのアイテム数</strong>（2026-05-28 確定）→ 直下のみを表示（再帰総数は取らない）。
+        </li>
+        <li>
+          <strong>同名複製先の扱い</strong>（2026-05-28 確定）→ <code>Copy of XXX (2)</code>、<code>(3)</code> の連番付与。<a href="#copy-algorithm">§7.5</a> に詳細。
+        </li>
+        <li>
+          <strong>中止時の挙動</strong>（2026-05-28 確定）→ AbortController で進行中の fetch も即座に中断。<a href="#copy-algorithm">§7.6</a>。
+        </li>
+        <li>
+          <strong>マイドライブ直下フォルダの複製先</strong>（2026-05-28 確定）→ マイドライブ直下に作成（<code>parents:["root"]</code>）。
+        </li>
+        <li>
+          <strong>非オーナー編集可フォルダの対応</strong>（2026-05-28 確定）→ 元の親階層に書き込み権限がある場合のみ作成。書き込み権限がなければエラーで中止し、自動フォールバックはしない。
+        </li>
+        <li>
+          <strong>並列度</strong>（2026-05-29 動作確認後に確定）→ 同時 <strong>4 並列</strong>で確定。動作確認で 429 エラーは発生せず、レスポンスも安定していたため変更不要。
+        </li>
+        <li>
+          <strong>長時間処理中のトークン期限切れ</strong>（2026-05-29 動作確認後に確定）→ MVP では「401 検知 → 再ログインを促す」フォールバックで許容。動作確認で実行時間が短く期限切れシナリオに遭遇しなかったため、GIS 自動再取得の本格実装は将来拡張に回す。
+        </li>
+        <li>
+          <strong>findAvailableName の上限</strong>（2026-05-29 動作確認後に確定）→ 10 件バッチ + 11〜99 逐次の現状実装で確定。動作確認では (2) までしか使われず、99 まで埋まる現実的なケースは無いと判断。
+        </li>
+        <li>
+          <strong>テスト用モック</strong>（2026-05-28 確定）→ <code>DriveApiClient</code> インターフェースをファクトリパターンでモック差し替え可能にする方式で確定。<code>src/services/stubServices.ts</code> 参照。MSW は導入しない。
+        </li>
+      </ol>
+
+      <h3>11.2 残課題（将来拡張）</h3>
+      <ol>
+        <li>
+          <strong>巨大フォルダ対策</strong>: 数千件のアイテム数を持つフォルダでは、メモリ上に CopyJobItem 配列を全件持つと膨らむ。ストリーミング処理に変える余地あり。MVP のテスト対象外（要件 C-7）。実機計測で 1000 件超のシナリオは未確認なので、後日大規模フォルダで再評価する。
+        </li>
+        <li>
+          <strong>長時間処理時のトークン自動更新</strong>: 60 分超の処理を想定する場合は GIS の <code>requestAccessToken</code> でサイレント再取得を組み込む（現在は再ログイン誘導でフォールバック）。
+        </li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <p>関連ドキュメント: <a href="product-requirements.html">プロダクト要求</a> / <a href="ui-specification.html">UI仕様</a> / <a href="architecture.html">技術仕様</a> / <a href="glossary.html">用語集</a></p>
+  </footer>
+
+</body>
+</html>

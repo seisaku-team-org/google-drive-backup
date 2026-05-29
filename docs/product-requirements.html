@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>プロダクト要求定義書 — Google Drive バックアップ</title>
+  <link rel="stylesheet" href="assets/design-system.css">
+</head>
+<body>
+
+  <header class="doc-header">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <h1>プロダクト要求定義書</h1>
+    <p class="doc-meta">Google Drive バックアップ ／ 最終更新: 2026-05-28（仕様確定アップデート）／ ステータス: ドラフト</p>
+  </header>
+
+  <details class="toc" open>
+    <summary>目次</summary>
+    <nav aria-label="目次">
+      <ol>
+        <li><a href="#vision">1. ビジョン / 製品の目的</a></li>
+        <li><a href="#target-users">2. ターゲットユーザー</a></li>
+        <li><a href="#scope">3. スコープと主要機能</a></li>
+        <li><a href="#success">4. 成功定義（KPI）</a></li>
+        <li><a href="#business-requirements">5. ビジネス要件</a></li>
+        <li><a href="#functional-requirements">6. 機能要件</a></li>
+        <li><a href="#non-functional-requirements">7. 非機能要件</a></li>
+        <li><a href="#user-stories">8. ユーザーストーリー</a></li>
+        <li><a href="#acceptance-criteria">9. 受け入れ条件</a></li>
+        <li><a href="#use-case-diagram">10. ユースケース図</a></li>
+        <li><a href="#constraints">11. 制約と前提</a></li>
+        <li><a href="#out-of-scope">12. 非スコープ（やらないこと）</a></li>
+      </ol>
+    </nav>
+  </details>
+
+  <main>
+
+    <section id="vision">
+      <h2>1. ビジョン / 製品の目的</h2>
+      <p>
+        <strong>「Google Drive バックアップ」</strong> は、ブラウザ上で動作する Web アプリケーションである。
+        ユーザーが Google Drive 上に持つ任意のフォルダを、<strong>同じ親階層に「Copy of 元フォルダ名」として丸ごと複製</strong>する。
+      </p>
+      <p>
+        これにより「重要なフォルダを誤って編集・削除する前にスナップショットを取りたい」「特定のフォルダ構成を雛形として再利用したい」といったユーザーの欲求を、
+        <strong>ローカル PC のストレージを使わずに Google Drive 内で完結</strong>させる。
+      </p>
+      <blockquote>
+        <p>
+          一言で言えば：<strong>「Drive 内で右クリック『コピー』をフォルダに対しても出来るようにする」</strong>ツールである。
+          Google Drive は標準ではフォルダ単位の複製機能を提供していない。本ツールはそのギャップを埋める。
+        </p>
+      </blockquote>
+    </section>
+
+    <section id="target-users">
+      <h2>2. ターゲットユーザー</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ペルソナ</th>
+            <th>状況</th>
+            <th>本ツールに期待すること</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>個人 Drive ユーザー</td>
+            <td>大事な資料フォルダを編集する前に保険でコピーを残したい</td>
+            <td>1クリック相当でフォルダごと複製したい</td>
+          </tr>
+          <tr>
+            <td>小規模事業者・フリーランス</td>
+            <td>案件ごとに雛形フォルダ（請求書／契約書テンプレ等）を複製して新案件用に流用したい</td>
+            <td>毎回手作業でファイルを 1 つずつコピーする手間を省きたい</td>
+          </tr>
+          <tr>
+            <td>学生・研究者</td>
+            <td>論文・レポートの版管理として、提出前のフォルダ状態を保存したい</td>
+            <td>ローカル PC を圧迫せずに「世代」を残したい</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        いずれも <strong>Google アカウントを持ち、ブラウザ（Chrome / Edge / Safari / Firefox 等）で日常的に Drive を使う一般ユーザー</strong>を想定。
+        プログラミング知識・API の知識は不要であること。
+      </p>
+    </section>
+
+    <section id="scope">
+      <h2>3. スコープと主要機能</h2>
+
+      <h3>3.1 MVP（最初に作る最小版）</h3>
+      <p>「とにかく最小：1フォルダを一回コピーできる」を最優先する。</p>
+      <ul>
+        <li>Google アカウントでログイン（OAuth2）</li>
+        <li>複製したいフォルダの <strong>共有 URL を貼り付け</strong>て指定</li>
+        <li>フォルダ情報（名前・所在・含まれるアイテム数）の事前プレビュー</li>
+        <li>「複製を開始」ボタンで、<strong>「Copy of 元フォルダ名」</strong>を同じ親フォルダ内に作成し、再帰的に全アイテムを複製</li>
+        <li>進捗表示（処理中のアイテム名・全体の進捗率）</li>
+        <li>完了後にレポート表示（成功件数・スキップ件数・エラー詳細）</li>
+      </ul>
+
+      <h3>3.2 将来拡張（MVP には含めない）</h3>
+      <ul>
+        <li>双方向同期（元フォルダの変更を複製先に追従させる）</li>
+        <li>複数フォルダの一括複製・キュー処理</li>
+        <li>世代管理（自動で日付付き複製を定期作成）</li>
+        <li>共有設定の追従コピー</li>
+        <li>共有ドライブ（チームドライブ）への対応</li>
+      </ul>
+      <p>※ Picker API による GUI 選択方式は最小スコープ化と引き換えに URL 貼り付け方式と両立しないため、MVP・将来とも採用しない。フォルダ指定は共有 URL のペーストで統一する。</p>
+    </section>
+
+    <section id="success">
+      <h2>4. 成功定義（KPI）</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>観点</th>
+            <th>指標</th>
+            <th>目標</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>体験</td>
+            <td>初回ログインから複製開始までの操作数</td>
+            <td>5 クリック以内（ログイン含む）</td>
+          </tr>
+          <tr>
+            <td>体験</td>
+            <td>100 ファイル規模のフォルダの複製完了までの体感時間</td>
+            <td>3 分以内（API レート制限の範囲内で）</td>
+          </tr>
+          <tr>
+            <td>信頼性</td>
+            <td>複製成功率（個別ファイル単位）</td>
+            <td>95% 以上（残り 5% 以下はスキップでレポート）</td>
+          </tr>
+          <tr>
+            <td>整合性</td>
+            <td>複製後のフォルダ階層が元と一致する率</td>
+            <td>100%（成功したアイテムについて）</td>
+          </tr>
+          <tr>
+            <td>安全性</td>
+            <td>元フォルダ・元ファイルへの破壊的操作</td>
+            <td>0 件（読み取りと新規作成のみ）</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="business-requirements">
+      <h2>5. ビジネス要件</h2>
+      <ul>
+        <li><strong>BR-1</strong>: 個人ユーザーが無料で利用できるオープンな Web アプリとして提供する（課金機能は MVP に含めない）。</li>
+        <li><strong>BR-2</strong>: ユーザーの Drive データはアプリのサーバには保存しない。OAuth トークンと API 経由のメタ操作のみで完結させる（プライバシー保護とサーバコスト抑制の両立）。</li>
+        <li><strong>BR-3</strong>: Google の OAuth 利用ポリシーおよび Drive API の利用規約に準拠する。スコープは最小限（必要なファイル・フォルダの読み取りと新規作成）に限定する。</li>
+        <li><strong>BR-4</strong>: 初回はクローズドベータ的に動作確認し、API クォータが許容範囲に収まることを確認してから一般公開する。</li>
+      </ul>
+    </section>
+
+    <section id="functional-requirements">
+      <h2>6. 機能要件</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>カテゴリ</th>
+            <th>要件</th>
+            <th>優先度</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>FR-01</td>
+            <td>認証</td>
+            <td>Google アカウントで OAuth2 認証を行い、Drive API の最小スコープのアクセストークンを取得できる</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-02</td>
+            <td>認証</td>
+            <td>ログイン状態が継続している場合、再認証なしで操作画面に進める</td>
+            <td><span class="priority-medium">Medium</span></td>
+          </tr>
+          <tr>
+            <td>FR-03</td>
+            <td>認証</td>
+            <td>ログアウト操作によりトークンを破棄し、未認証状態に戻せる</td>
+            <td><span class="priority-medium">Medium</span></td>
+          </tr>
+          <tr>
+            <td>FR-04</td>
+            <td>フォルダ指定</td>
+            <td>Drive フォルダの共有 URL を入力欄に貼り付けて指定できる。<strong>貼り付け直後に自動的にフォルダ情報の取得を開始する</strong>（手動「取得」ボタンは設けない）</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-05</td>
+            <td>フォルダ指定</td>
+            <td>貼り付けられた URL からフォルダ ID を抽出し、Drive API でメタデータ（名前・親フォルダ・<strong>直下のアイテム数</strong>）を取得して表示する。再帰的な総件数は表示しない（取得コスト削減のため）</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-06</td>
+            <td>フォルダ指定</td>
+            <td>無効な URL・存在しない ID・権限がないフォルダを指定した場合、明確なエラーメッセージを表示する</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-07</td>
+            <td>複製実行</td>
+            <td>「複製を開始」操作で、元フォルダと同じ親フォルダ内に「Copy of 元フォルダ名」という名前の新規フォルダを作成する。同名フォルダがすでに存在する場合は <code>Copy of XXX (2)</code>、<code>(3)</code> … のように<strong>連番を自動付与</strong>して衝突を回避する。元フォルダがマイドライブ直下にある場合は<strong>マイドライブ直下</strong>に複製先を作成する</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-07b</td>
+            <td>複製実行</td>
+            <td>非オーナーの編集可能フォルダを複製する場合、元フォルダと同じ親階層にユーザーが書き込み権限を持つときに限り複製先を作成する。書き込み権限がない場合は事前に検出して操作を中止し、エラーメッセージで通知する（自動的にマイドライブにフォールバックはしない）</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-08</td>
+            <td>複製実行</td>
+            <td>元フォルダ内のサブフォルダ・ファイルを再帰的に複製し、階層構造を保持する</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-09</td>
+            <td>複製実行</td>
+            <td>Google 独自ファイル（Docs / Sheets / Slides / Forms 等）は files.copy でそのまま複製する（PDF 等への変換はしない）</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-10</td>
+            <td>進捗表示</td>
+            <td>複製中、処理中のアイテム名・全体の進捗率（成功＋スキップ件数 ÷ 全件数）をリアルタイムに表示する</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-11</td>
+            <td>エラー処理</td>
+            <td>個別アイテムの複製に失敗した場合、エラー内容を記録してスキップし、全体の処理は続行する</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-12</td>
+            <td>完了レポート</td>
+            <td>全体完了時に、複製先フォルダへのリンク・成功件数・スキップ件数・スキップ理由の一覧を表示する</td>
+            <td><span class="priority-high">High</span></td>
+          </tr>
+          <tr>
+            <td>FR-13</td>
+            <td>完了レポート</td>
+            <td>レポート内容を CSV / プレーンテキストとしてダウンロードまたはコピーできる</td>
+            <td><span class="priority-low">Low</span></td>
+          </tr>
+          <tr>
+            <td>FR-14</td>
+            <td>中断</td>
+            <td>複製処理中にユーザーが「中止」操作を行うと、<strong>進行中の API リクエストを AbortController で速やかに中断</strong>し処理を停止する。途中まで作成された複製先フォルダ（および複製済みのアイテム）は削除せずに残す</td>
+            <td><span class="priority-medium">Medium</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="non-functional-requirements">
+      <h2>7. 非機能要件</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>カテゴリ</th>
+            <th>要件</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>NFR-01</td>
+            <td>パフォーマンス</td>
+            <td>100 ファイル規模のフォルダで体感 3 分以内（Drive API のレート制限内で並列化を検討）</td>
+          </tr>
+          <tr>
+            <td>NFR-02</td>
+            <td>信頼性</td>
+            <td>API レートリミット（429 / 403 quotaExceeded）に対し指数バックオフでリトライする</td>
+          </tr>
+          <tr>
+            <td>NFR-03</td>
+            <td>セキュリティ</td>
+            <td>OAuth スコープは <code>drive.readonly</code> + <code>drive.file</code> + <code>openid email profile</code> の組み合わせで確定。書き込みは本アプリが作成したフォルダ・ファイルに限定される（<code>drive</code> 全権限スコープは要求しない）。<code>drive.readonly</code> は URL 貼り付け方式の前提として必要</td>
+          </tr>
+          <tr>
+            <td>NFR-04</td>
+            <td>セキュリティ</td>
+            <td>アクセストークンはブラウザのメモリ上でのみ保持し、サーバ・LocalStorage には保存しない（短期トークンの再取得方式）</td>
+          </tr>
+          <tr>
+            <td>NFR-05</td>
+            <td>プライバシー</td>
+            <td>サーバ側でユーザーのファイル内容を保存・転送しない（クライアント完結 or サーバはトークン交換のみ）</td>
+          </tr>
+          <tr>
+            <td>NFR-06</td>
+            <td>可用性</td>
+            <td>ブラウザのみで動作し、追加インストール・拡張機能不要</td>
+          </tr>
+          <tr>
+            <td>NFR-07</td>
+            <td>互換性</td>
+            <td>Chrome / Edge / Firefox / Safari の最新版で動作（モバイルブラウザは MVP では非保証）</td>
+          </tr>
+          <tr>
+            <td>NFR-08</td>
+            <td>アクセシビリティ</td>
+            <td>WCAG 2.1 AA を最低基準（キーボード操作・コントラスト・スクリーンリーダー対応）</td>
+          </tr>
+          <tr>
+            <td>NFR-09</td>
+            <td>国際化</td>
+            <td>MVP は日本語 UI のみ。文言は将来の i18n を見据えてキー化しておくことが望ましい</td>
+          </tr>
+          <tr>
+            <td>NFR-10</td>
+            <td>保守性</td>
+            <td>機能仕様と UI 仕様は本ドキュメント群で一元管理。コードからのドキュメント乖離を起こさない</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="user-stories">
+      <h2>8. ユーザーストーリー</h2>
+
+      <h3>US-01 — フォルダの保険コピーを作りたい</h3>
+      <blockquote>
+        <p>
+          <strong>個人 Drive ユーザー</strong>として、<br>
+          重要な資料が入ったフォルダを大きく編集する前に、<br>
+          <strong>同じ階層に「Copy of …」として完全な複製</strong>を作っておきたい。<br>
+          そうすれば、編集に失敗してもいつでも元の状態に戻せる。
+        </p>
+      </blockquote>
+
+      <h3>US-02 — 雛形フォルダを新案件用に流用したい</h3>
+      <blockquote>
+        <p>
+          <strong>フリーランス</strong>として、<br>
+          請求書・契約書のテンプレが入った「案件雛形」フォルダを、<br>
+          <strong>新しい案件のたびに複製して名前を付け替えて使いたい</strong>。<br>
+          現状は中身のファイルを 1 個ずつ右クリック→コピーしているのが面倒。
+        </p>
+      </blockquote>
+
+      <h3>US-03 — 提出前のスナップショットを残したい</h3>
+      <blockquote>
+        <p>
+          <strong>学生</strong>として、<br>
+          論文フォルダを教授に提出する直前に <strong>「Copy of 卒論_2026春」</strong> として残しておきたい。<br>
+          ローカル PC には容量を使いたくない。
+        </p>
+      </blockquote>
+
+      <h3>US-04 — 大量ファイルでも安心して進めたい</h3>
+      <blockquote>
+        <p>
+          <strong>小規模事業者</strong>として、<br>
+          数百ファイル入った業務フォルダを複製するとき、<br>
+          <strong>途中で何件か失敗しても全体は止まらず、最後にどれが失敗したか分かる</strong>状態にしたい。
+        </p>
+      </blockquote>
+
+      <h3>US-05 — 進捗を見ながら待ちたい</h3>
+      <blockquote>
+        <p>
+          <strong>すべてのユーザー</strong>として、<br>
+          複製が走っている間、<strong>「今どのファイルを処理中か」「あと何件か」</strong>が見えていてほしい。<br>
+          固まっているのか動いているのかが分からない待ち時間は不安。
+        </p>
+      </blockquote>
+    </section>
+
+    <section id="acceptance-criteria">
+      <h2>9. 受け入れ条件（Acceptance Criteria）</h2>
+      <p>以下を満たした時点で MVP の受け入れ可とする。</p>
+
+      <h3>AC-01: ログイン</h3>
+      <ul>
+        <li>「Google でログイン」ボタンを押すと、Google の認証画面に遷移する</li>
+        <li>認証後、本アプリのメイン画面に戻り、ヘッダーにログイン中のユーザー名（またはメールアドレス）が表示される</li>
+        <li>「ログアウト」操作で未認証画面に戻る</li>
+      </ul>
+
+      <h3>AC-02: フォルダ指定とプレビュー</h3>
+      <ul>
+        <li>共有 URL 入力欄に有効な Drive フォルダの URL を貼り付けると、<strong>自動的に</strong>フォルダ名・所在パス・直下のアイテム数のプレビューが表示される（手動「取得」ボタンは存在しない）</li>
+        <li>無効な URL（フォルダ以外、存在しない、権限なし、共有ドライブ内）の場合、プレビューは表示されず、原因が分かるエラーメッセージが表示される</li>
+      </ul>
+
+      <h3>AC-03: 複製の実行</h3>
+      <ul>
+        <li>「複製を開始」を押すと、元フォルダと同じ親階層に「Copy of 〇〇」フォルダが作成される（元フォルダがマイドライブ直下ならマイドライブ直下に作成）</li>
+        <li>同名フォルダがすでにある場合は <code>Copy of 〇〇 (2)</code>、<code>(3)</code> のように連番が自動付与される</li>
+        <li>非オーナーの編集可能フォルダの場合、ユーザーが親階層に書き込み権限を持つときのみ作成される。権限がなければ事前に検出して中止し、エラー文言が表示される</li>
+        <li>元フォルダ内のすべてのサブフォルダ・ファイルが、階層構造を保ったまま複製される</li>
+        <li>Google Docs / Sheets / Slides もそのまま編集可能な状態で複製される</li>
+        <li>元フォルダ・元ファイルには一切の変更が加えられない（読み取りのみ）</li>
+      </ul>
+
+      <h3>AC-04: 進捗とエラー</h3>
+      <ul>
+        <li>処理中、進捗率と現在処理中のアイテム名が画面に表示され続ける。<strong>分母（総件数）は処理進行中に増加することがある</strong>（再帰列挙と複製を並行するため）</li>
+        <li>個別ファイルでエラーが発生しても全体は止まらず、次のアイテムに進む</li>
+        <li>「中止」操作時は進行中の API リクエストを速やかに中断し、途中の複製先フォルダはそのまま残る</li>
+        <li>完了時（または中止時）にレポート画面が出て、成功件数・スキップ件数・スキップしたアイテム名と理由が一覧できる</li>
+        <li>レポート画面から複製先フォルダを Drive で直接開くリンクがある</li>
+      </ul>
+
+      <h3>AC-05: 安全性</h3>
+      <ul>
+        <li>本アプリは元フォルダ・元ファイルに対して書き込み・削除・移動を行わない</li>
+        <li>OAuth で要求するスコープは <code>drive.readonly</code> + <code>drive.file</code> + <code>openid email profile</code> のみ。<code>drive</code>（全権限）スコープは要求しない</li>
+      </ul>
+    </section>
+
+    <section id="use-case-diagram">
+      <h2>10. ユースケース図</h2>
+      <p>本アプリの主要なアクター（ユーザーと外部システム）とユースケースの関係を示す。</p>
+
+      <figure>
+        <svg viewBox="0 0 760 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ユースケース図">
+          <!-- System boundary -->
+          <rect x="180" y="20" width="400" height="420" fill="none" stroke="#4338ca" stroke-width="1.5" stroke-dasharray="4 3" rx="8"/>
+          <text x="380" y="42" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="600" fill="#4338ca">Google Drive バックアップ（本システム）</text>
+
+          <!-- Primary actor: User -->
+          <g>
+            <circle cx="60" cy="220" r="14" fill="#fff" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="60" y1="234" x2="60" y2="270" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="40" y1="250" x2="80" y2="250" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="60" y1="270" x2="44" y2="298" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="60" y1="270" x2="76" y2="298" stroke="#0f172a" stroke-width="1.5"/>
+            <text x="60" y="320" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#0f172a">ユーザー</text>
+            <text x="60" y="336" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">（Drive オーナー）</text>
+          </g>
+
+          <!-- Secondary actor: Google Drive API -->
+          <g>
+            <circle cx="700" cy="220" r="14" fill="#fff" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="700" y1="234" x2="700" y2="270" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="680" y1="250" x2="720" y2="250" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="700" y1="270" x2="684" y2="298" stroke="#0f172a" stroke-width="1.5"/>
+            <line x1="700" y1="270" x2="716" y2="298" stroke="#0f172a" stroke-width="1.5"/>
+            <text x="700" y="320" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#0f172a">Google Drive API</text>
+            <text x="700" y="336" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">«external system»</text>
+          </g>
+
+          <!-- Use cases (ellipses) -->
+          <g font-family="sans-serif" font-size="12" fill="#0f172a">
+            <ellipse cx="320" cy="80" rx="100" ry="22" fill="#eef2ff" stroke="#4338ca"/>
+            <text x="320" y="84" text-anchor="middle">UC-01: Googleでログイン</text>
+
+            <ellipse cx="320" cy="140" rx="110" ry="22" fill="#eef2ff" stroke="#4338ca"/>
+            <text x="320" y="144" text-anchor="middle">UC-02: フォルダURLを指定</text>
+
+            <ellipse cx="320" cy="200" rx="115" ry="22" fill="#eef2ff" stroke="#4338ca"/>
+            <text x="320" y="204" text-anchor="middle">UC-03: フォルダ情報を確認</text>
+
+            <ellipse cx="320" cy="260" rx="100" ry="22" fill="#eef2ff" stroke="#4338ca"/>
+            <text x="320" y="264" text-anchor="middle">UC-04: 複製を実行</text>
+
+            <ellipse cx="320" cy="320" rx="100" ry="22" fill="#eef2ff" stroke="#4338ca"/>
+            <text x="320" y="324" text-anchor="middle">UC-05: 進捗を確認</text>
+
+            <ellipse cx="320" cy="380" rx="120" ry="22" fill="#eef2ff" stroke="#4338ca"/>
+            <text x="320" y="384" text-anchor="middle">UC-06: 完了レポートを確認</text>
+          </g>
+
+          <!-- Lines: User -> Use cases -->
+          <g stroke="#475569" stroke-width="1">
+            <line x1="78" y1="218" x2="220" y2="82"/>
+            <line x1="80" y1="222" x2="210" y2="140"/>
+            <line x1="82" y1="222" x2="205" y2="200"/>
+            <line x1="82" y1="232" x2="220" y2="260"/>
+            <line x1="78" y1="240" x2="220" y2="320"/>
+            <line x1="76" y1="248" x2="200" y2="380"/>
+          </g>
+
+          <!-- Lines: Use cases -> Google Drive API -->
+          <g stroke="#475569" stroke-width="1">
+            <line x1="420" y1="80" x2="682" y2="218"/>
+            <line x1="430" y1="140" x2="685" y2="218"/>
+            <line x1="435" y1="200" x2="685" y2="220"/>
+            <line x1="420" y1="260" x2="685" y2="222"/>
+            <line x1="420" y1="320" x2="685" y2="224"/>
+            <line x1="440" y1="380" x2="685" y2="226"/>
+          </g>
+        </svg>
+        <figcaption>図1. ユースケース図（ユーザー — 本システム — Google Drive API）</figcaption>
+      </figure>
+
+      <h3>ユースケース一覧</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>名称</th>
+            <th>主アクター</th>
+            <th>概要</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>UC-01</td><td>Googleでログイン</td><td>ユーザー</td><td>OAuth2 で認証し、Drive API のトークンを取得する</td></tr>
+          <tr><td>UC-02</td><td>フォルダURLを指定</td><td>ユーザー</td><td>共有 URL を貼り付け、対象フォルダを指定する</td></tr>
+          <tr><td>UC-03</td><td>フォルダ情報を確認</td><td>ユーザー</td><td>名前・所在・アイテム数を確認してから実行する</td></tr>
+          <tr><td>UC-04</td><td>複製を実行</td><td>ユーザー</td><td>「Copy of 〇〇」フォルダを同階層に作り、中身を再帰的に複製する</td></tr>
+          <tr><td>UC-05</td><td>進捗を確認</td><td>ユーザー</td><td>処理中のアイテム名と進捗率を見る</td></tr>
+          <tr><td>UC-06</td><td>完了レポートを確認</td><td>ユーザー</td><td>成功件数・スキップ件数・複製先リンクを確認する</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="constraints">
+      <h2>11. 制約と前提</h2>
+      <ul>
+        <li><strong>C-1</strong>: Google Drive API のクォータに従う。短期間に大量のリクエストを送ると一時的に 429 エラーが発生する。指数バックオフでのリトライを必須とする。</li>
+        <li><strong>C-2</strong>: Drive はフォルダ自体の「コピー」を API でネイティブにはサポートしていない。フォルダは「files.create で空フォルダを再作成」＋「中身を files.copy で複製」の合成で実装する。</li>
+        <li><strong>C-3</strong>: 元フォルダの共有設定・コメント・版履歴は MVP では複製しない（files.copy のデフォルト挙動に従う）。</li>
+        <li><strong>C-4</strong>: ショートカット（Drive 上のショートカットアイテム）の扱いは MVP では「ショートカットとしてそのまま複製」とし、ショートカット先の実体追従はしない。</li>
+        <li><strong>C-5</strong>: <strong>共有ドライブ（チームドライブ）内のフォルダは MVP では対象外</strong>。マイドライブ上のフォルダ、および自分が編集権限を持つ他人所有のフォルダ（マイドライブからショートカット等でアクセスできるもの）は対象とする。</li>
+        <li><strong>C-6</strong>: 複製先は原則「元フォルダと同じ親階層」に作成する。元フォルダがマイドライブ直下にある場合はマイドライブ直下に作成。<strong>非オーナーフォルダで親階層に書き込み権限がない場合は、自動フォールバックを行わずエラーとして中止する</strong>（ユーザーが意図しない場所に複製が生まれるのを防ぐため）。</li>
+        <li><strong>C-7</strong>: 巨大フォルダ（数千ファイル以上）の複製は MVP のテスト対象外。技術的に動くとしても UX 上の保証はしない。</li>
+      </ul>
+    </section>
+
+    <section id="out-of-scope">
+      <h2>12. 非スコープ（やらないこと）</h2>
+      <ul>
+        <li>ローカル PC への書き出し・ダウンロード（本アプリは Drive 内で完結する）</li>
+        <li>双方向同期・差分同期・自動定期実行</li>
+        <li>共有ドライブ・他人のドライブへの操作</li>
+        <li>ファイルの内容変換（PDF 化等）</li>
+        <li>共有権限・コメント・版履歴の複製</li>
+        <li>モバイルブラウザでの最適化（PC ブラウザを優先）</li>
+        <li>オフラインでの実行</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <p>関連ドキュメント: <a href="ui-specification.html">UI仕様書</a> / <a href="functional-design.html">機能設計書</a> / <a href="glossary.html">用語集</a></p>
+  </footer>
+
+</body>
+</html>

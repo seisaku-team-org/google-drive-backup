@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>要求定義 — 20260528 初回実装 (MVP)</title>
+  <link rel="stylesheet" href="../../docs/assets/design-system.css">
+</head>
+<body>
+
+  <header class="doc-header">
+    <a class="back-link" href="../../docs/index.html">← ドキュメント一覧へ</a>
+    <h1>要求定義 — 初回実装 (MVP)</h1>
+    <p class="doc-meta">作業ID: 20260528-initial-implementation ／ 最終更新: 2026-05-28 ／ ステータス: ドラフト</p>
+  </header>
+
+  <details class="toc" open>
+    <summary>目次</summary>
+    <nav aria-label="目次">
+      <ol>
+        <li><a href="#purpose">1. 作業の目的</a></li>
+        <li><a href="#scope">2. 対象スコープ</a></li>
+        <li><a href="#out-of-scope">3. 非スコープ</a></li>
+        <li><a href="#user-stories">4. 対象ユーザーストーリー</a></li>
+        <li><a href="#acceptance-criteria">5. 受け入れ条件</a></li>
+        <li><a href="#assumptions">6. 前提・制約</a></li>
+        <li><a href="#references">7. 参照ドキュメント</a></li>
+      </ol>
+    </nav>
+  </details>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section id="purpose">
+      <h2>1. 作業の目的</h2>
+      <p>
+        プロダクト要求定義書 §3.1 に定義された <strong>MVP（最初に作る最小版）</strong>を、
+        ブラウザで動作する Web アプリとして実装する。
+        「とにかく最小：1 フォルダを一回コピーできる」を最優先する。
+      </p>
+      <p>
+        本作業の完了時には、ユーザーが本アプリを開いて Google ログインを行い、
+        Drive フォルダの共有 URL を貼って「複製を開始」を押すと、
+        同じ親階層に <strong>「Copy of 元フォルダ名」</strong>として丸ごとコピーされ、
+        完了時に成功・スキップのレポートが表示される ─ そこまでが動く。
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="scope">
+      <h2>2. 対象スコープ</h2>
+      <p>本作業で実装する範囲を、機能要件 ID と対応付けて明示する（プロダクト要求 §6 参照）。</p>
+      <table>
+        <thead>
+          <tr><th>FR-ID</th><th>要件</th><th>本作業での扱い</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>FR-01</td><td>Google OAuth2 認証でアクセストークン取得</td><td>実装する</td></tr>
+          <tr><td>FR-02</td><td>ログイン継続時の自動進入</td><td><strong>本作業では実装しない</strong>（毎回ログインさせる。トークン期限内のみメモリで継続）</td></tr>
+          <tr><td>FR-03</td><td>ログアウト</td><td>実装する</td></tr>
+          <tr><td>FR-04</td><td>共有 URL の貼り付け入力</td><td>実装する</td></tr>
+          <tr><td>FR-05</td><td>URL からフォルダ ID 抽出 + メタデータ取得 + プレビュー表示</td><td>実装する</td></tr>
+          <tr><td>FR-06</td><td>無効 URL のエラー表示</td><td>実装する（UI 仕様書 §3.2.4 のエラー文言 5 種すべて）</td></tr>
+          <tr><td>FR-07</td><td>「Copy of 元フォルダ名」フォルダの作成</td><td>実装する</td></tr>
+          <tr><td>FR-08</td><td>サブフォルダ・ファイルの再帰複製</td><td>実装する</td></tr>
+          <tr><td>FR-09</td><td>Google 独自ファイルの files.copy 複製</td><td>実装する</td></tr>
+          <tr><td>FR-10</td><td>進捗のリアルタイム表示</td><td>実装する</td></tr>
+          <tr><td>FR-11</td><td>個別エラー時のスキップ＋続行</td><td>実装する</td></tr>
+          <tr><td>FR-12</td><td>完了レポート表示</td><td>実装する</td></tr>
+          <tr><td>FR-13</td><td>レポートのコピー（CSV／プレーンテキスト）</td><td>プレーンテキストのみ実装する（CSV は非対応）</td></tr>
+          <tr><td>FR-14</td><td>複製中の中止</td><td>実装する</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="out-of-scope">
+      <h2>3. 非スコープ（本作業では実装しない）</h2>
+      <p>プロダクト要求 §3.2「将来拡張」および §12「非スコープ」のものは、本作業では対象外とする。具体的には：</p>
+      <ul>
+        <li>双方向同期・差分同期・自動定期実行</li>
+        <li>複数フォルダの一括複製・キュー処理</li>
+        <li>Google Picker API によるフォルダ選択 UI</li>
+        <li>世代管理（自動で日付付き複製を定期作成）</li>
+        <li>共有設定・コメント・版履歴の追従コピー</li>
+        <li>共有ドライブへの対応</li>
+        <li>ローカル PC への書き出し・ダウンロード</li>
+        <li>モバイルブラウザ専用最適化</li>
+        <li>レポートの CSV 出力</li>
+        <li>ログイン継続（FR-02 の自動再ログイン）</li>
+        <li>i18n / 多言語化</li>
+        <li>ダークモード専用デザイン（CSS の <code>prefers-color-scheme</code> に従う範囲のみ）</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="user-stories">
+      <h2>4. 対象ユーザーストーリー</h2>
+      <p>プロダクト要求 §8 のユーザーストーリー US-01〜05 のうち、本作業ですべて満たす：</p>
+
+      <h3>US-01 — フォルダの保険コピーを作りたい</h3>
+      <blockquote>
+        <p>個人 Drive ユーザーとして、重要な資料が入ったフォルダを大きく編集する前に、同じ階層に「Copy of …」として完全な複製を作っておきたい。</p>
+      </blockquote>
+
+      <h3>US-02 — 雛形フォルダを新案件用に流用したい</h3>
+      <blockquote>
+        <p>フリーランスとして、案件雛形フォルダを、新しい案件のたびに複製して名前を付け替えて使いたい。</p>
+      </blockquote>
+
+      <h3>US-03 — 提出前のスナップショットを残したい</h3>
+      <blockquote>
+        <p>学生として、論文フォルダを提出する直前に「Copy of 卒論_2026春」として残しておきたい。</p>
+      </blockquote>
+
+      <h3>US-04 — 大量ファイルでも安心して進めたい</h3>
+      <blockquote>
+        <p>小規模事業者として、数百ファイル入った業務フォルダを複製するとき、途中で失敗しても全体は止まらず、最後にどれが失敗したか分かる状態にしたい。</p>
+      </blockquote>
+
+      <h3>US-05 — 進捗を見ながら待ちたい</h3>
+      <blockquote>
+        <p>すべてのユーザーとして、複製が走っている間、「今どのファイルを処理中か」「あと何件か」が見えていてほしい。</p>
+      </blockquote>
+
+      <p>名前変更（US-02 で「新しい案件のたびに <strong>名前を付け替えて使いたい</strong>」と書かれている部分）については、複製先名は「Copy of 〇〇」固定で作成されるため、複製後ユーザーが Drive 上で名前変更する想定（本アプリ内では行わない）。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="acceptance-criteria">
+      <h2>5. 受け入れ条件</h2>
+      <p>プロダクト要求 §9 の AC-01〜05 を本作業の完了基準とする。以下に再掲し、本作業に追加する条件を末尾に並べる。</p>
+
+      <h3>AC-01: ログイン</h3>
+      <ul>
+        <li>「Google でログイン」ボタンを押すと、Google の認証画面に遷移する</li>
+        <li>認証後、本アプリのメイン画面（SCR-002-home）に戻り、ヘッダーにログイン中のメールアドレスが表示される</li>
+        <li>「ログアウト」操作で SCR-001-login に戻る</li>
+        <li>OAuth キャンセル時はトーストでフィードバックされ、ボタンが再度活性に戻る</li>
+      </ul>
+
+      <h3>AC-02: フォルダ指定とプレビュー</h3>
+      <ul>
+        <li>有効な Drive フォルダの共有 URL を貼り付けると、フォルダ名・所在パス・アイテム数のプレビューが表示される</li>
+        <li>UI 仕様書 §3.2.4 のエラー文言 5 種（URL 解析失敗 / フォルダではない / 404 / 403 / 共有ドライブ内）が状況に応じて表示される</li>
+        <li>機能設計書 §4.2 UrlParser で定義した URL 5 形式 + ID 単独入力をすべて受け付ける</li>
+      </ul>
+
+      <h3>AC-03: 複製の実行</h3>
+      <ul>
+        <li>「複製を開始」を押すと、元フォルダと同じ親階層に「Copy of 〇〇」フォルダが作成される</li>
+        <li>元フォルダ内のすべてのサブフォルダ・ファイルが、階層構造を保ったまま複製される</li>
+        <li>Google Docs / Sheets / Slides もそのまま編集可能な状態で複製される</li>
+        <li>元フォルダ・元ファイルには一切の変更が加えられない（読み取りのみ）</li>
+      </ul>
+
+      <h3>AC-04: 進捗とエラー</h3>
+      <ul>
+        <li>処理中、進捗率（X% (n/total)）と現在処理中のアイテム名が画面に表示され続ける</li>
+        <li>個別ファイルでエラーが発生しても全体は止まらず、次のアイテムに進む</li>
+        <li>完了時にレポート画面が出て、成功件数・スキップ件数・スキップ詳細（名前・理由・所在）が一覧できる</li>
+        <li>レポート画面から複製先フォルダを Drive で直接開くリンクがある</li>
+        <li>「中止」操作は確認ダイアログを経て、現在処理中のアイテム完了後に停止する</li>
+      </ul>
+
+      <h3>AC-05: 安全性</h3>
+      <ul>
+        <li>本アプリは元フォルダ・元ファイルに対して書き込み・削除・移動を行わない（コードレビューおよび手動確認で担保）</li>
+        <li>アクセストークンが <code>localStorage</code> / <code>sessionStorage</code> / Cookie に書き出されない（コードレビューで担保）</li>
+        <li>OAuth で要求するスコープは drive.file + drive.readonly + openid email profile に限定する</li>
+      </ul>
+
+      <h3>AC-06（本作業追加）: 開発インフラ</h3>
+      <ul>
+        <li>プロジェクトが <code>npm install</code> → <code>npm run dev</code> でローカル起動できる</li>
+        <li><code>npm run typecheck</code> / <code>npm run lint</code> / <code>npm run test</code> がそれぞれ green でパス</li>
+        <li><code>npm run build</code> が成功し、<code>dist/</code> が生成される</li>
+        <li>main マージで GitHub Actions が GitHub Pages へ自動デプロイし、本番 URL からアクセスできる</li>
+      </ul>
+
+      <h3>AC-07（本作業追加）: ドキュメント整合</h3>
+      <ul>
+        <li>実装の結果として、永続ドキュメントに記述と異なる挙動が出た場合は、同 PR で永続ドキュメント側を修正する</li>
+        <li>未決事項（機能設計書 §11）について判断したものは、永続ドキュメントに反映する</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="assumptions">
+      <h2>6. 前提・制約</h2>
+
+      <h3>6.1 前提</h3>
+      <ul>
+        <li>開発者は Google Cloud Console で OAuth クライアント ID を発行できる</li>
+        <li>テスト用 Google アカウントと、十分小さなテスト用フォルダ（10〜30 アイテム規模）を用意できる</li>
+        <li>GitHub リポジトリ・GitHub Pages の設定権限がある</li>
+        <li>Node.js 20 LTS と npm 10 がローカルで動く</li>
+      </ul>
+
+      <h3>6.2 制約</h3>
+      <ul>
+        <li><strong>本番 Drive API へのアクセス上限</strong>: 1 ユーザー 100 秒あたり 1,000 リクエスト。指数バックオフ（機能設計書 §8.2）で守る</li>
+        <li><strong>アクセストークン有効期限 60 分</strong>: MVP では長時間処理の途中失効は許容範囲とし、AC-01 の挙動（401 検知で再ログインへ）でフォールバック</li>
+        <li><strong>テスト時の API クォータ消費</strong>: E2E は本番 API ではなくスタブで実施するため、開発中の API 呼び出しは個別動作確認時のみ</li>
+        <li><strong>OAuth スコープ未決の課題</strong>: 機能設計書 §11「未決事項 1」（drive.readonly が強権限）について、本作業中に再検討してプロジェクトの結論を出すこと。本作業の初期実装は readonly + drive.file の併用案で進める</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="references">
+      <h2>7. 参照ドキュメント</h2>
+      <ul>
+        <li><a href="../../docs/product-requirements.html">プロダクト要求定義書</a> — 特に §3.1 MVP / §6 機能要件 / §8 ユーザーストーリー / §9 受け入れ条件</li>
+        <li><a href="../../docs/ui-specification.html">UI 仕様書</a> — 全 4 画面の仕様</li>
+        <li><a href="../../docs/functional-design.html">機能設計書</a> — アルゴリズム・エラーハンドリング・API 設計</li>
+        <li><a href="../../docs/architecture.html">技術仕様書</a> — スタックと開発ツール</li>
+        <li><a href="../../docs/repository-structure.html">リポジトリ構造定義書</a> — フォルダ配置と命名</li>
+        <li><a href="../../docs/development-guidelines.html">開発ガイドライン</a> — コーディング規約と Git 規約</li>
+        <li><a href="../../docs/glossary.html">用語集</a> — 命名整合</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer">
+    <a class="back-link" href="../../docs/index.html">← ドキュメント一覧へ</a>
+    <p>関連: <a href="design.html">design.html</a> ／ <a href="tasklist.md">tasklist.md</a></p>
+  </footer>
+
+</body>
+</html>

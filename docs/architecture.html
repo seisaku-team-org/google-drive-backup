@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>技術仕様書 — Google Drive バックアップ</title>
+  <link rel="stylesheet" href="assets/design-system.css">
+</head>
+<body>
+
+  <header class="doc-header">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <h1>技術仕様書</h1>
+    <p class="doc-meta">Google Drive バックアップ ／ 最終更新: 2026-05-29（Node 24 LTS 実機動作確認・反映）／ ステータス: ドラフト</p>
+  </header>
+
+  <details class="toc" open>
+    <summary>目次</summary>
+    <nav aria-label="目次">
+      <ol>
+        <li><a href="#stack">1. テクノロジースタック</a></li>
+        <li><a href="#dev-tools">2. 開発ツール</a></li>
+        <li><a href="#build-deploy">3. ビルド・デプロイ</a></li>
+        <li><a href="#browser-support">4. ブラウザ・実行環境</a></li>
+        <li><a href="#performance">5. パフォーマンス要件と目標値</a></li>
+        <li><a href="#security">6. セキュリティ・プライバシー方針</a></li>
+        <li><a href="#constraints">7. 技術的制約</a></li>
+        <li><a href="#dependencies">8. 外部依存ライブラリ一覧</a></li>
+      </ol>
+    </nav>
+  </details>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section id="stack">
+      <h2>1. テクノロジースタック</h2>
+
+      <h3>1.1 ランタイム / 言語</h3>
+      <table>
+        <thead><tr><th>レイヤー</th><th>採用技術</th><th>バージョン目標</th><th>採用理由</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>言語</td>
+            <td>TypeScript</td>
+            <td>5.4+</td>
+            <td>Drive API レスポンスの型付け、CopyJob / CopyJobItem 等の状態モデルを型安全に扱うため必須</td>
+          </tr>
+          <tr>
+            <td>UI フレームワーク</td>
+            <td>React</td>
+            <td>18.x</td>
+            <td>エコシステムが厚く、Drive API 連携の前例も多い。4 ビュー規模ではフックベースで素直に書ける</td>
+          </tr>
+          <tr>
+            <td>ルーティング</td>
+            <td>React Router（hash router）</td>
+            <td>6.x</td>
+            <td>GitHub Pages 配信のため hash ルーター（<code>#/login</code> 等）。サーバ側リライト不要</td>
+          </tr>
+          <tr>
+            <td>状態管理</td>
+            <td>React の useState / useReducer + Context</td>
+            <td>React 18 標準</td>
+            <td>4 画面・1 ジョブの規模で Redux 等は過剰。Context 1 つで <code>auth / job / ui</code> を提供</td>
+          </tr>
+          <tr>
+            <td>スタイリング</td>
+            <td>生 CSS + CSS Modules</td>
+            <td>—</td>
+            <td>ドキュメント側の <code>design-system.css</code> のトークンをそのまま継承。Tailwind 等の追加依存を入れない</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>1.2 ビルド / 開発サーバ</h3>
+      <table>
+        <thead><tr><th>用途</th><th>採用技術</th><th>バージョン目標</th><th>採用理由</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>ビルド / Dev サーバ</td>
+            <td>Vite</td>
+            <td>5.x</td>
+            <td>起動・HMR が高速、React/TS テンプレートが公式に整備。GitHub Pages へのデプロイ設定も簡素</td>
+          </tr>
+          <tr>
+            <td>パッケージマネージャ</td>
+            <td>npm</td>
+            <td>10.x 以上（Node.js LTS 同梱版）</td>
+            <td>追加インストール不要、lockfile が単一で扱いやすい</td>
+          </tr>
+          <tr>
+            <td>Node.js（開発時のみ）</td>
+            <td>Node.js</td>
+            <td>20 LTS 以上（<strong>Node 24 LTS で動作確認済み</strong>）</td>
+            <td>Vite / TS / Vitest / Playwright が動作する Node LTS。CI は Node 20 で実行、ローカルは winget が入れる現行 LTS（執筆時点 Node 24）で動作確認済み。package.json の <code>engines.node</code> は <code>&gt;=20</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>1.3 認証・API クライアント</h3>
+      <table>
+        <thead><tr><th>用途</th><th>採用技術</th><th>備考</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>OAuth クライアント</td>
+            <td>Google Identity Services（GIS）</td>
+            <td><code>&lt;script src="https://accounts.google.com/gsi/client"&gt;</code> を直接読み込み。npm 経由のラッパーは入れない</td>
+          </tr>
+          <tr>
+            <td>Drive API クライアント</td>
+            <td>自作（fetch ベース）</td>
+            <td><code>googleapis</code>（Node 専用）や <code>gapi.client</code> は使わず、ブラウザ標準 <code>fetch</code> を薄くラップ</td>
+          </tr>
+        </tbody>
+      </table>
+      <p><a href="functional-design.html#external-api">機能設計書 §10</a> で定義した最小 5 エンドポイントだけを叩くため、専用 SDK を導入する利点が薄い。バンドルサイズ・依存ライセンス管理の観点でも自作が有利。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="dev-tools">
+      <h2>2. 開発ツール</h2>
+
+      <h3>2.1 静的解析・整形</h3>
+      <table>
+        <thead><tr><th>用途</th><th>ツール</th><th>設定方針</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>型チェック</td>
+            <td>TypeScript（<code>tsc --noEmit</code>）</td>
+            <td><code>strict: true</code> 必須。<code>noUncheckedIndexedAccess</code> も有効化</td>
+          </tr>
+          <tr>
+            <td>Lint</td>
+            <td>ESLint</td>
+            <td><code>@typescript-eslint</code> + <code>eslint-plugin-react</code> + <code>eslint-plugin-react-hooks</code>。Prettier との衝突は <code>eslint-config-prettier</code> で解消</td>
+          </tr>
+          <tr>
+            <td>整形</td>
+            <td>Prettier</td>
+            <td>シングルクォート、セミコロンあり、行幅 100、末尾カンマ <code>all</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>2.2 テスト</h3>
+      <table>
+        <thead><tr><th>レイヤー</th><th>ツール</th><th>対象</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>ユニットテスト</td>
+            <td>Vitest</td>
+            <td><code>UrlParser</code> / <code>CopyEngine</code>（DriveApiClient はモック注入）／ <code>ReportBuilder</code> 等の純ロジック</td>
+          </tr>
+          <tr>
+            <td>コンポーネントテスト</td>
+            <td>Vitest + @testing-library/react</td>
+            <td>各 View の状態切替（空 / 読込中 / エラー / 成功）。Drive API は <code>DriveApiClient</code> インターフェースをモックで差し替え</td>
+          </tr>
+          <tr>
+            <td>E2E テスト</td>
+            <td>Playwright</td>
+            <td>ハッピーパス（ログイン省略のスタブ環境で）。本番 Drive API には接続せず、開発時起動の Vite サーバ + テスト用のスタブで動かす</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>Drive API のリアル接続テストは MVP 対象外（クォータ消費・テスト不安定化を避ける）。スモークテストとして手動で 1 度だけ実施し、レポートに記録する。</p>
+
+      <h3>2.3 推奨 IDE / 拡張</h3>
+      <ul>
+        <li>VS Code</li>
+        <li>拡張: ESLint / Prettier / EditorConfig / GitHub Actions（YAML 補完）</li>
+        <li><code>.editorconfig</code> で改行コード LF・インデント 2 スペースを統一</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="build-deploy">
+      <h2>3. ビルド・デプロイ</h2>
+
+      <h3>3.1 npm スクリプト（標準セット）</h3>
+      <table>
+        <thead><tr><th>スクリプト</th><th>内容</th></tr></thead>
+        <tbody>
+          <tr><td><code>npm run dev</code></td><td>Vite Dev サーバを起動（既定 <code>http://localhost:5173</code>）</td></tr>
+          <tr><td><code>npm run build</code></td><td>本番ビルド（<code>dist/</code> に出力）</td></tr>
+          <tr><td><code>npm run preview</code></td><td>本番ビルドをローカルで確認</td></tr>
+          <tr><td><code>npm run typecheck</code></td><td><code>tsc --noEmit</code></td></tr>
+          <tr><td><code>npm run lint</code></td><td>ESLint 実行</td></tr>
+          <tr><td><code>npm run format</code></td><td>Prettier 実行</td></tr>
+          <tr><td><code>npm run test</code></td><td>Vitest（watch なし）</td></tr>
+          <tr><td><code>npm run test:e2e</code></td><td>Playwright</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.2 デプロイ（GitHub Pages）</h3>
+      <ul>
+        <li><strong>方式</strong>: GitHub Actions により <code>main</code> ブランチへのマージで自動デプロイ</li>
+        <li><strong>パス</strong>: <code>https://&lt;org&gt;.github.io/&lt;repo&gt;/</code>。<code>vite.config.ts</code> の <code>base</code> をリポジトリ名に合わせる</li>
+        <li><strong>SPA ルーティング</strong>: hash ルーター採用のため <code>404.html</code> 経由のリライトは不要</li>
+        <li><strong>環境変数</strong>: Google OAuth クライアント ID は <code>VITE_GOOGLE_CLIENT_ID</code> としてビルド時に注入（リポジトリの GitHub Secrets で管理）</li>
+      </ul>
+
+      <h3>3.3 環境別の設定</h3>
+      <table>
+        <thead><tr><th>環境</th><th>OAuth クライアント ID</th><th>許可リダイレクト URI</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>local（dev）</td>
+            <td>開発用クライアント ID</td>
+            <td><code>http://localhost:5173</code></td>
+          </tr>
+          <tr>
+            <td>production</td>
+            <td>本番用クライアント ID</td>
+            <td><code>https://&lt;org&gt;.github.io/&lt;repo&gt;</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <p>クライアント ID は Google Cloud Console の OAuth 2.0 設定で発行。アプリ側からはコードに直書きせず <code>import.meta.env.VITE_GOOGLE_CLIENT_ID</code> で参照する。</p>
+
+      <h3>3.4 CI ワークフロー（GitHub Actions）</h3>
+      <p>PR で typecheck / lint / test:unit を必須にし、main マージで build → Pages デプロイを動かす。具体の YAML は実装フェーズで <code>.github/workflows/</code> に置く。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="browser-support">
+      <h2>4. ブラウザ・実行環境</h2>
+
+      <h3>4.1 サポート対象</h3>
+      <table>
+        <thead><tr><th>ブラウザ</th><th>バージョン</th><th>サポートレベル</th></tr></thead>
+        <tbody>
+          <tr><td>Chrome（デスクトップ）</td><td>最新 2 メジャー</td><td>Tier 1（CI でテスト）</td></tr>
+          <tr><td>Edge（デスクトップ）</td><td>最新 2 メジャー</td><td>Tier 1</td></tr>
+          <tr><td>Firefox（デスクトップ）</td><td>最新 2 メジャー</td><td>Tier 2（手動確認）</td></tr>
+          <tr><td>Safari（macOS）</td><td>最新 2 メジャー</td><td>Tier 2（手動確認）</td></tr>
+          <tr><td>モバイルブラウザ</td><td>—</td><td>Best Effort（最適化はしないが、レイアウト崩れがあれば直す）</td></tr>
+          <tr><td>IE 11 / 旧 Edge / 旧ブラウザ</td><td>—</td><td>非サポート</td></tr>
+        </tbody>
+      </table>
+
+      <h3>4.2 ターゲット ES バージョン</h3>
+      <p>Vite の <code>build.target</code> は <code>esnext</code>。トランスパイル先は <strong>ES2022</strong> 相当（Top-level await・optional chaining 等は使用可）。最終配布は ESM。</p>
+
+      <h3>4.3 必要なブラウザ API</h3>
+      <ul>
+        <li><code>fetch</code></li>
+        <li><code>Clipboard API</code>（レポートコピー機能）</li>
+        <li><code>structuredClone</code>（あれば使う、なくても代替可）</li>
+        <li><code>navigator.onLine</code> / online/offline イベント（ネット切断検知）</li>
+        <li>Google Identity Services を読み込むための CDN 接続（<code>accounts.google.com/gsi/client</code>）</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="performance">
+      <h2>5. パフォーマンス要件と目標値</h2>
+
+      <h3>5.1 ロード性能（初回アクセス）</h3>
+      <table>
+        <thead><tr><th>指標</th><th>目標</th><th>備考</th></tr></thead>
+        <tbody>
+          <tr><td>Time to Interactive（FCP+）</td><td>2 秒以下（4G 相当 / Lighthouse）</td><td>SPA だが画面数が少なくバンドルは小さく保てる</td></tr>
+          <tr><td>JS バンドル合計（gzip）</td><td>150 KB 以下</td><td>React + Router 込み。CSS in JS や大型ライブラリの追加を避けることで達成可</td></tr>
+          <tr><td>Lighthouse Performance</td><td>90 点以上（PC）</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <h3>5.2 実行時性能（複製処理）</h3>
+      <table>
+        <thead><tr><th>シナリオ</th><th>目標</th></tr></thead>
+        <tbody>
+          <tr><td>100 アイテム規模のフォルダ（深さ 3 階層）</td><td>体感 3 分以内（プロダクト要求 KPI と一致）</td></tr>
+          <tr><td>進捗 UI の更新間隔</td><td>最大 1 秒（過剰更新は防ぐ）</td></tr>
+          <tr><td>UI 入力からプレビュー表示まで</td><td>1 秒以内（folder.get 1 + listChildren 数回）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>5.3 メモリ</h3>
+      <p>CopyJobItem の配列は 1 件あたり 200 バイト前後を想定。1,000 件で 200KB 程度。10,000 件規模は対象外（要件 C-7）。</p>
+
+      <h3>5.4 API 利用量</h3>
+      <table>
+        <thead><tr><th>呼び出し</th><th>1複製あたりの回数</th></tr></thead>
+        <tbody>
+          <tr><td><code>files.get</code></td><td>1（プレビュー用）</td></tr>
+          <tr><td><code>files.list</code></td><td>フォルダ数 × ページ数（200件/ページ）</td></tr>
+          <tr><td><code>files.create</code>（フォルダ）</td><td>サブフォルダ数 + 1</td></tr>
+          <tr><td><code>files.copy</code></td><td>ファイル数</td></tr>
+        </tbody>
+      </table>
+      <p>合計呼び出し数の概算: 「ファイル数 + サブフォルダ数 × 2 + 1」程度。Google Drive の 1 ユーザー / 100 秒あたり 1,000 リクエストのレート上限内に通常収まる。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="security">
+      <h2>6. セキュリティ・プライバシー方針</h2>
+
+      <h3>6.1 OAuth スコープ</h3>
+      <p>要求スコープは以下で<strong>確定（2026-05-28）</strong>：</p>
+      <ul>
+        <li><code>https://www.googleapis.com/auth/drive.readonly</code> — URL 貼り付け方式で任意フォルダのメタデータを読むために必須</li>
+        <li><code>https://www.googleapis.com/auth/drive.file</code> — 本アプリが作成するフォルダ・ファイルへの書き込み</li>
+        <li><code>openid email profile</code> — ログイン中ユーザーの識別表示</li>
+      </ul>
+      <p>
+        <code>drive.readonly</code> は Drive 全体読み取りに相当する強権限だが、URL 貼り付け方式（ユーザーが任意の Drive フォルダ ID を指定する）を採用する以上、これを併用する必要がある。
+        Picker API への移行で <code>drive.file</code> 単独化する代替案は検討したが、URL 貼り付け方式と両立しないため<strong>採用しない</strong>こととした（プロダクト要求 §3.2 / 機能設計書 §10.1 参照）。
+      </p>
+      <p>
+        書き込みは <code>drive.file</code> の範囲に閉じるため、本アプリは「ユーザーが Drive で別途編集しているファイル」を変更することは技術的にできない。元データへの破壊的操作は構造的に発生しえない。
+      </p>
+
+      <h3>6.2 トークン管理</h3>
+      <ul>
+        <li>アクセストークンは <strong>JS のクロージャ内変数</strong>として保持。<code>localStorage</code> / <code>sessionStorage</code> / Cookie には一切書き込まない</li>
+        <li>ページリロード時はトークンが失われ、再ログインを求める（実装が単純で、トークン漏洩リスクも最小）</li>
+        <li>トークン失効（401）を検知したら即座に未認証状態に戻す</li>
+      </ul>
+
+      <h3>6.3 プライバシー</h3>
+      <ul>
+        <li>サーバを持たないため、ユーザーのファイル内容・メタデータ・トークンが自前インフラを経由しない</li>
+        <li>外形監視・アクセスログの類は MVP では設置しない</li>
+        <li>Google Analytics 等の第三者トラッキングは導入しない</li>
+      </ul>
+
+      <h3>6.4 CSP / 配信ヘッダー</h3>
+      <p>GitHub Pages はカスタムヘッダー設定が限定的だが、<code>&lt;meta http-equiv="Content-Security-Policy"&gt;</code> で以下を最低限指定する：</p>
+      <pre><code>default-src 'self';
+script-src 'self' https://accounts.google.com https://apis.google.com;
+connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com;
+frame-src https://accounts.google.com;
+img-src 'self' data:;
+style-src 'self' 'unsafe-inline';</code></pre>
+      <p><code>style-src</code> に <code>unsafe-inline</code> を含めるのは、初期 HTML に小さなインラインスタイルを持たせるため。コンポーネントの CSS Modules は <code>'self'</code> で済む。</p>
+
+      <h3>6.5 依存ライブラリの監査</h3>
+      <p><code>npm audit</code> を CI で実行し、High 以上を検知したらブロック。Dependabot を有効化して PR で更新を回す。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="constraints">
+      <h2>7. 技術的制約</h2>
+      <ol>
+        <li><strong>Google Drive API のレートリミット</strong>: 1 ユーザー / 100 秒あたり 1,000 リクエスト、1 プロジェクト全体で 10,000 リクエスト / 100 秒。指数バックオフ実装で守る</li>
+        <li><strong>アクセストークンの有効期限</strong>: 通常 60 分。長時間処理では途中で切れる可能性がある</li>
+        <li><strong>フォルダの「コピー」API は存在しない</strong>: files.copy はファイル単体のみ。フォルダは「create + 再帰コピー」の合成で実装する（機能設計書 §7）</li>
+        <li><strong>GitHub Pages の制限</strong>: ビルド成果物 1GB まで、リクエスト 100GB/月、HTTPS 必須（OAuth リダイレクト URI 要件と整合）</li>
+        <li><strong>CSP 配信制約</strong>: GitHub Pages はレスポンスヘッダーをカスタムできないため、CSP は meta タグで指定。strict なルールは妥協が必要</li>
+        <li><strong>ブラウザの popup ブロッカー</strong>: OAuth ポップアップが弾かれることがあるため、ユーザー操作のクリック直後にしか開かない</li>
+      </ol>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="dependencies">
+      <h2>8. 外部依存ライブラリ一覧（候補）</h2>
+      <p>MVP 開始時点で導入を想定するパッケージ。正確なバージョンは <code>package.json</code> 確定時に固める。</p>
+
+      <h3>8.1 ランタイム依存（<code>dependencies</code>）</h3>
+      <table>
+        <thead><tr><th>パッケージ</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>react</code></td><td>UI フレームワーク</td></tr>
+          <tr><td><code>react-dom</code></td><td>DOM レンダリング</td></tr>
+          <tr><td><code>react-router-dom</code></td><td>hash ルーティング</td></tr>
+        </tbody>
+      </table>
+
+      <h3>8.2 開発依存（<code>devDependencies</code>）</h3>
+      <table>
+        <thead><tr><th>パッケージ</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>typescript</code></td><td>型チェック</td></tr>
+          <tr><td><code>vite</code> / <code>@vitejs/plugin-react</code></td><td>ビルド・Dev サーバ</td></tr>
+          <tr><td><code>@types/react</code> / <code>@types/react-dom</code></td><td>型定義</td></tr>
+          <tr><td><code>eslint</code> / <code>@typescript-eslint/*</code> / <code>eslint-plugin-react</code> / <code>eslint-plugin-react-hooks</code> / <code>eslint-config-prettier</code></td><td>静的解析</td></tr>
+          <tr><td><code>prettier</code></td><td>整形</td></tr>
+          <tr><td><code>vitest</code> / <code>@testing-library/react</code> / <code>@testing-library/jest-dom</code> / <code>jsdom</code></td><td>ユニット・コンポーネントテスト</td></tr>
+          <tr><td><code>@playwright/test</code></td><td>E2E</td></tr>
+        </tbody>
+      </table>
+
+      <h3>8.3 入れないと決めるもの</h3>
+      <table>
+        <thead><tr><th>採用しない</th><th>理由</th></tr></thead>
+        <tbody>
+          <tr><td>Redux / Zustand / Recoil 等の状態管理ライブラリ</td><td>React 標準で十分な規模</td></tr>
+          <tr><td>Tailwind CSS / styled-components / Emotion</td><td>design-system.css のトークンを生 CSS で活かす方針</td></tr>
+          <tr><td>googleapis（Node 用 SDK）</td><td>ブラウザ非対応</td></tr>
+          <tr><td>gapi.client（旧 Google API JS Library）</td><td>レガシー化、自作 fetch で代替可</td></tr>
+          <tr><td>UI コンポーネントライブラリ（MUI / Chakra / Mantine 等）</td><td>4 画面に対して重い。デザインも独自でよい</td></tr>
+          <tr><td>i18n ライブラリ</td><td>MVP は日本語のみ。文言外出しは将来検討（NFR-09）</td></tr>
+          <tr><td>MSW</td><td>DriveApiClient インターフェースのモック注入で代替（テスト粒度的に十分）</td></tr>
+          <tr><td>Google Picker API</td><td>URL 貼り付け方式と両立しないため不採用（2026-05-28 確定）。詳細は §6.1</td></tr>
+        </tbody>
+      </table>
+      <p class="callout-warn">「入れないと決めるもの」は実装時に再評価して構わないが、追加する場合は本ドキュメントに理由を追記する。</p>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <p>関連ドキュメント: <a href="functional-design.html">機能設計</a> / <a href="repository-structure.html">リポジトリ構造</a> / <a href="development-guidelines.html">開発ガイドライン</a></p>
+  </footer>
+
+</body>
+</html>

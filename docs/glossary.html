@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>用語集 — Google Drive バックアップ</title>
+  <link rel="stylesheet" href="assets/design-system.css">
+</head>
+<body>
+
+  <header class="doc-header">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <h1>用語集 / ユビキタス言語</h1>
+    <p class="doc-meta">Google Drive バックアップ ／ 最終更新: 2026-05-29（2フェーズ用語追加）／ ステータス: ドラフト</p>
+  </header>
+
+  <details class="toc" open>
+    <summary>目次</summary>
+    <nav aria-label="目次">
+      <ol>
+        <li><a href="#how-to-read">0. 本ドキュメントの読み方</a></li>
+        <li><a href="#drive-terms">1. Google Drive 関連用語</a></li>
+        <li><a href="#copy-terms">2. 複製処理に関する用語</a></li>
+        <li><a href="#auth-terms">3. 認証に関する用語</a></li>
+        <li><a href="#ui-terms">4. UI / UX 用語</a></li>
+        <li><a href="#arch-terms">5. アーキテクチャ用語</a></li>
+        <li><a href="#process-terms">6. プロセス / 開発フロー用語</a></li>
+        <li><a href="#avoid-table">7. 揺れがちな表現の対応表</a></li>
+      </ol>
+    </nav>
+  </details>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section id="how-to-read">
+      <h2>0. 本ドキュメントの読み方</h2>
+      <p>本用語集は<strong>本プロジェクト内のすべての文書とコードで用いる正式な呼称</strong>を定義する。次の原則に従う：</p>
+      <ul>
+        <li>UI ラベルとして用いる場合は「UIラベル」列、コード上の英語表記としては「英語 (code)」列を用いる</li>
+        <li>「避ける表現」に挙げた語を意図せず使ってしまったらレビューで指摘し直す</li>
+        <li>新しい用語が登場したら必ず本書に追記する（<a href="development-guidelines.html#docs-sync">development-guidelines.html §6</a> 参照）</li>
+        <li>UI 上の表現については <a href="ui-specification.html#glossary-mapping">UI 仕様書 §7「用語整合」</a> も併読する</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="drive-terms">
+      <h2>1. Google Drive 関連用語</h2>
+      <table>
+        <thead>
+          <tr><th>正式名称</th><th>UIラベル</th><th>英語 (code)</th><th>定義</th><th>避ける表現</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>フォルダ</td>
+            <td>フォルダ</td>
+            <td><code>folder</code></td>
+            <td>Drive 上の <code>application/vnd.google-apps.folder</code> mimeType を持つアイテム。中に他のアイテムを含むことができる</td>
+            <td>「ディレクトリ」「ホルダー」</td>
+          </tr>
+          <tr>
+            <td>ファイル</td>
+            <td>ファイル</td>
+            <td><code>file</code></td>
+            <td>フォルダ以外の Drive アイテム全般（通常ファイル / Google 独自ファイル / ショートカット）</td>
+            <td>「ドキュメント」（範囲が狭い）</td>
+          </tr>
+          <tr>
+            <td>アイテム</td>
+            <td>アイテム</td>
+            <td><code>item</code> / <code>DriveItem</code></td>
+            <td>「フォルダまたはファイル」の総称。Drive API の <code>files</code> リソースに対応</td>
+            <td>「データ」「もの」「リソース」</td>
+          </tr>
+          <tr>
+            <td>Google 独自ファイル</td>
+            <td>—（UI ラベルとしては基本使わない）</td>
+            <td><code>googleNativeFile</code></td>
+            <td>Google Docs / Sheets / Slides / Forms / Drawings 等、Drive 上でだけ編集可能な独自形式のファイル。mimeType が <code>application/vnd.google-apps.*</code> で始まる（<code>folder</code> を除く）</td>
+            <td>「Googleドキュメント」（Docs 限定の意味になる）</td>
+          </tr>
+          <tr>
+            <td>ショートカット</td>
+            <td>—</td>
+            <td><code>shortcut</code></td>
+            <td>mimeType <code>application/vnd.google-apps.shortcut</code> のアイテム。実体は別のアイテムを参照するエイリアス</td>
+            <td>「リンク」「エイリアス」</td>
+          </tr>
+          <tr>
+            <td>マイドライブ</td>
+            <td>マイドライブ</td>
+            <td><code>myDrive</code></td>
+            <td>ユーザー個人の Drive のルート領域。本アプリは MVP ではマイドライブ内のフォルダのみを対象とする</td>
+            <td>「個人ドライブ」</td>
+          </tr>
+          <tr>
+            <td>共有ドライブ</td>
+            <td>共有ドライブ（非対応の旨を伝える文脈でのみ使用）</td>
+            <td><code>sharedDrive</code></td>
+            <td>組織で共有される Drive 領域。MVP では対応しない</td>
+            <td>「チームドライブ」（旧称）</td>
+          </tr>
+          <tr>
+            <td>ファイル ID</td>
+            <td>—（内部表現）</td>
+            <td><code>fileId</code> / <code>folderId</code></td>
+            <td>Drive アイテムの一意な識別子。共有 URL のパスから抽出する</td>
+            <td>「ID」（単独だと曖昧）</td>
+          </tr>
+          <tr>
+            <td>共有リンク URL</td>
+            <td>共有 URL（短縮形）</td>
+            <td><code>shareUrl</code></td>
+            <td>Drive アイテムを共有するための URL。本アプリではこの URL を入力としてフォルダを特定する</td>
+            <td>「リンク」「アドレス」（汎用すぎる）</td>
+          </tr>
+          <tr>
+            <td>親フォルダ</td>
+            <td>—</td>
+            <td><code>parent</code> / <code>parents</code></td>
+            <td>あるアイテムを直接含むフォルダ。Drive 仕様では複数親を許容するが本アプリは先頭の親を使う</td>
+            <td>「上位フォルダ」</td>
+          </tr>
+          <tr>
+            <td>アクセス権</td>
+            <td>アクセス権</td>
+            <td><code>permission</code></td>
+            <td>あるユーザーがアイテムに対して持つ権限（owner / writer / reader）</td>
+            <td>「権限」（曖昧）</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="copy-terms">
+      <h2>2. 複製処理に関する用語</h2>
+      <table>
+        <thead>
+          <tr><th>正式名称</th><th>UIラベル</th><th>英語 (code)</th><th>定義</th><th>避ける表現</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>フォルダ複製</td>
+            <td>複製を開始</td>
+            <td><code>duplicate</code> / <code>copyFolder</code></td>
+            <td>本アプリの中核機能。元フォルダと同じ親階層に「Copy of 元フォルダ名」を作成し、中身を再帰的にコピーする一連の処理</td>
+            <td>「コピーする」「ダウンロードする」「実行する」</td>
+          </tr>
+          <tr>
+            <td>複製元 / 複製元フォルダ</td>
+            <td>—（必要なら「元のフォルダ」）</td>
+            <td><code>source</code> / <code>sourceFolderId</code></td>
+            <td>ユーザーが複製したい元のフォルダ。本アプリは元データに対して<strong>読み取りのみ</strong>を行う</td>
+            <td>「<code>src</code>」「<code>original</code>」「元データ」</td>
+          </tr>
+          <tr>
+            <td>複製先 / 複製先フォルダ</td>
+            <td>複製先フォルダ</td>
+            <td><code>destination</code> / <code>destinationFolderId</code></td>
+            <td>本アプリが新規作成するフォルダ。命名は「Copy of 元フォルダ名」固定</td>
+            <td>「<code>dest</code>」「<code>target</code>」「保存先」「コピー先」</td>
+          </tr>
+          <tr>
+            <td>"Copy of" プレフィックス</td>
+            <td>—（自動付与なので UI から明示）</td>
+            <td><code>COPY_OF_PREFIX</code></td>
+            <td>複製先フォルダ名の先頭に付与する固定文字列。Google Drive 標準のファイル複製の命名規則と合わせている</td>
+            <td>「コピー -」「複製 -」</td>
+          </tr>
+          <tr>
+            <td>ジョブ</td>
+            <td>—（内部用語）</td>
+            <td><code>CopyJob</code></td>
+            <td>1 回の複製処理を表す単位。元フォルダ ID・複製先フォルダ ID・ステータス等を保持する</td>
+            <td>「タスク」「処理」</td>
+          </tr>
+          <tr>
+            <td>ジョブアイテム</td>
+            <td>—</td>
+            <td><code>CopyJobItem</code></td>
+            <td>ジョブの中で複製対象となる個別のアイテム単位の状態</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>スキップ</td>
+            <td>スキップ</td>
+            <td><code>skipped</code> / <code>skipReason</code></td>
+            <td>個別アイテムの複製失敗時に、その 1 件だけ飛ばして全体処理は続行する挙動。「失敗」ではなく「スキップ」と呼ぶ</td>
+            <td>「失敗」「エラー」（個別アイテムについて）</td>
+          </tr>
+          <tr>
+            <td>中止</td>
+            <td>中止</td>
+            <td><code>cancel</code> / <code>cancelRequested</code></td>
+            <td>ユーザーが複製処理を能動的に止めること。現在処理中のアイテム完了後に停止する</td>
+            <td>「キャンセル」（こちらはフォーム入力のクリア用）／「停止」「強制終了」</td>
+          </tr>
+          <tr>
+            <td>キャンセル</td>
+            <td>キャンセル</td>
+            <td><code>clear</code> / <code>resetInput</code></td>
+            <td>SCR-002-home で URL 入力欄とプレビューをクリアする操作。複製処理の中止とは別概念</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>リトライ</td>
+            <td>—（内部）</td>
+            <td><code>retry</code></td>
+            <td>API レート制限や一時的なサーバエラー（429 / 5xx）で同じリクエストを再試行する処理</td>
+            <td>「再試行」（コード内では statement の重複を避けるため英語）</td>
+          </tr>
+          <tr>
+            <td>指数バックオフ</td>
+            <td>—</td>
+            <td><code>exponentialBackoff</code></td>
+            <td>リトライ間隔を 2 倍ずつ広げていく待機戦略（初回 1秒 → 2秒 → 4秒 …、上限 30秒）</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>進捗</td>
+            <td>進捗</td>
+            <td><code>progress</code></td>
+            <td>ジョブ全体の処理状況（n / total、X%）</td>
+            <td>「プログレス」</td>
+          </tr>
+          <tr>
+            <td>完了レポート</td>
+            <td>レポート</td>
+            <td><code>Report</code></td>
+            <td>ジョブ完了時に表示する成功・スキップ件数のサマリーと、スキップ詳細を含む情報</td>
+            <td>「結果」「サマリー」</td>
+          </tr>
+          <tr>
+            <td>所要時間</td>
+            <td>所要時間</td>
+            <td><code>durationMs</code></td>
+            <td>ジョブの開始から完了 / 中止までに要した時間。MM:SS 形式で表示</td>
+            <td>「処理時間」「経過時間」</td>
+          </tr>
+          <tr>
+            <td>ジョブフェーズ</td>
+            <td>—（内部）</td>
+            <td><code>JobPhase</code> / <code>'counting' | 'copying'</code></td>
+            <td>1 回の複製処理を 2 段階に分けたフェーズ。<code>counting</code>（集計）→ <code>copying</code>（複製）と遷移する。2026-05-29 設計変更で導入</td>
+            <td>「ステージ」「ステップ」（曖昧）</td>
+          </tr>
+          <tr>
+            <td>集計フェーズ</td>
+            <td>集計中…</td>
+            <td><code>counting</code></td>
+            <td>複製を始める前に、元フォルダ配下の全アイテムを BFS で列挙して総数を確定する段階。UI では「集計中…」見出しとスピナー＋件数カウンターを表示し、進捗バーは出さない</td>
+            <td>「カウント」「列挙」（曖昧）</td>
+          </tr>
+          <tr>
+            <td>複製フェーズ</td>
+            <td>複製中…</td>
+            <td><code>copying</code></td>
+            <td>集計済みのアイテムを実際に Drive 上で複製する段階。total が固定されているので進捗バーは正確に 0%→100% に進む</td>
+            <td>「コピー」（用語整合 §7 参照）</td>
+          </tr>
+          <tr>
+            <td>列挙キャッシュ</td>
+            <td>—（内部）</td>
+            <td><code>childrenCache</code></td>
+            <td>集計フェーズで列挙した <code>folderId → DriveFileResource[]</code> マップ。複製フェーズで再利用することで listAllChildren を 1 フォルダ 1 回に抑える</td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="auth-terms">
+      <h2>3. 認証に関する用語</h2>
+      <table>
+        <thead>
+          <tr><th>正式名称</th><th>UIラベル</th><th>英語 (code)</th><th>定義</th><th>避ける表現</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>ログイン</td>
+            <td>Google でログイン / ログアウト</td>
+            <td><code>signIn</code> / <code>signOut</code></td>
+            <td>OAuth2 で本アプリに Drive API へのアクセス許可を与える操作 / 解除する操作</td>
+            <td>「サインイン」「認証する」「ログオン」</td>
+          </tr>
+          <tr>
+            <td>セッション</td>
+            <td>セッション（「セッションが切れました」等）</td>
+            <td><code>session</code></td>
+            <td>ログイン状態が有効である期間</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>アクセストークン</td>
+            <td>—（一般ユーザー向けには出さない）</td>
+            <td><code>accessToken</code></td>
+            <td>Google API 呼び出しのために用いるトークン文字列。本アプリではメモリのみに保持</td>
+            <td>「トークン」（短縮しすぎ）</td>
+          </tr>
+          <tr>
+            <td>OAuth クライアント ID</td>
+            <td>—</td>
+            <td><code>VITE_GOOGLE_CLIENT_ID</code></td>
+            <td>Google Cloud Console で発行する、本アプリを識別する OAuth 用の ID。シークレットは含まない</td>
+            <td>「API キー」</td>
+          </tr>
+          <tr>
+            <td>スコープ</td>
+            <td>—</td>
+            <td><code>scope</code></td>
+            <td>OAuth でユーザーから要求する権限の範囲を表す URL 形式の識別子（例: <code>drive.readonly</code>）</td>
+            <td>「権限」（曖昧）</td>
+          </tr>
+          <tr>
+            <td>Google Identity Services（GIS）</td>
+            <td>—</td>
+            <td><code>google.accounts</code></td>
+            <td>Google が提供するブラウザ向け OAuth 認証ライブラリ。<code>https://accounts.google.com/gsi/client</code> を読み込んで使う</td>
+            <td>「Google Sign-In」（旧称）</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="ui-terms">
+      <h2>4. UI / UX 用語</h2>
+      <table>
+        <thead>
+          <tr><th>正式名称</th><th>UIラベル</th><th>英語 (code)</th><th>定義</th><th>避ける表現</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>画面</td>
+            <td>—</td>
+            <td><code>view</code> / <code>screen</code></td>
+            <td>ユーザーに対して 1 つのまとまった目的を提示する UI 単位。本アプリでは 4 画面（SCR-001〜004）</td>
+            <td>「ページ」（本アプリは SPA だがハッシュ単位の「画面」と呼ぶ）</td>
+          </tr>
+          <tr>
+            <td>画面 ID</td>
+            <td>—</td>
+            <td><code>SCR-NNN-name</code></td>
+            <td>各画面に付与される一意な識別子。形式は <code>SCR-001-home</code></td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>ワイヤフレーム</td>
+            <td>—</td>
+            <td>—</td>
+            <td>各画面の構成要素・配置を最小限のスタイルで示した図。UI 仕様書に PC・モバイル両用版を必ず描く</td>
+            <td>「モックアップ」（より作り込まれたものを指す）</td>
+          </tr>
+          <tr>
+            <td>コンポーネント</td>
+            <td>—</td>
+            <td><code>Component</code></td>
+            <td>React の関数コンポーネント、または UI 仕様書 §4 で定義する共通 UI 部品</td>
+            <td>「パーツ」「部品」（仕様文書としては避ける）</td>
+          </tr>
+          <tr>
+            <td>ビュー</td>
+            <td>—</td>
+            <td><code>View</code></td>
+            <td>「画面」のコード上での呼称。<code>src/views/HomeView/</code> のように対応する</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>プレビュー / プレビューカード</td>
+            <td>プレビュー</td>
+            <td><code>preview</code> / <code>FolderPreview</code></td>
+            <td>SCR-002-home で取得したフォルダ情報（名前・所在・件数・複製先名）を提示する UI ブロック</td>
+            <td>「サマリー」「情報パネル」</td>
+          </tr>
+          <tr>
+            <td>進捗バー</td>
+            <td>—</td>
+            <td><code>ProgressBar</code></td>
+            <td>0〜100% を視覚的に示す UI 要素（<code>&lt;progress&gt;</code> または <code>role="progressbar"</code>）</td>
+            <td>「プログレスバー」（カタカナ表記）</td>
+          </tr>
+          <tr>
+            <td>カウンター</td>
+            <td>—</td>
+            <td><code>Counter</code></td>
+            <td>成功・スキップ・残り件数を大きく数値表示するカード型 UI</td>
+            <td>「カウント」「数値」</td>
+          </tr>
+          <tr>
+            <td>トースト</td>
+            <td>—（UI には出ない、内部呼称）</td>
+            <td><code>Toast</code></td>
+            <td>画面の角に短時間表示される非ブロッキングな通知。表示時間は 4 秒が基準</td>
+            <td>「通知バー」「スナックバー」</td>
+          </tr>
+          <tr>
+            <td>確認ダイアログ</td>
+            <td>—（モーダル内の見出しで「複製を中止しますか？」等）</td>
+            <td><code>ConfirmDialog</code></td>
+            <td>「中止」「ログアウト中」など破壊的・引き返しにくい操作の前にユーザー確認を取るモーダル</td>
+            <td>「ダイアログ」（単体だと曖昧）</td>
+          </tr>
+          <tr>
+            <td>モーダル</td>
+            <td>—</td>
+            <td><code>Modal</code></td>
+            <td>背景を覆って前面に表示される UI。確認ダイアログを実装する基底</td>
+            <td>「ポップアップ」</td>
+          </tr>
+          <tr>
+            <td>デザイントークン</td>
+            <td>—</td>
+            <td>CSS カスタムプロパティ（<code>--color-*</code> 等）</td>
+            <td>色・タイポ・スペーシング等の値を再利用可能な変数として定義したもの</td>
+            <td>「変数」「テーマカラー」（曖昧）</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="arch-terms">
+      <h2>5. アーキテクチャ用語</h2>
+      <table>
+        <thead>
+          <tr><th>正式名称</th><th>英語 (code)</th><th>定義</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>SPA（シングルページアプリケーション）</td>
+            <td><code>SPA</code></td>
+            <td>1 つの HTML から JS で各画面を描画する Web アプリ形態。本アプリの基本形態</td>
+          </tr>
+          <tr>
+            <td>静的ホスティング</td>
+            <td><code>static hosting</code></td>
+            <td>HTML / JS / CSS を配信するだけのホスティング。サーバロジックを持たない。GitHub Pages を採用</td>
+          </tr>
+          <tr>
+            <td>ハッシュルーター</td>
+            <td><code>hash router</code></td>
+            <td>URL の <code>#/...</code> 部分でクライアント側ルーティングを行う方式。サーバ側リライト不要</td>
+          </tr>
+          <tr>
+            <td>レイヤー</td>
+            <td><code>layer</code></td>
+            <td>本アプリのコード階層区分（views / state / domain / infra）。依存方向はこの順に右向きのみ許可</td>
+          </tr>
+          <tr>
+            <td>State Store</td>
+            <td><code>store</code> / <code>AppContext</code></td>
+            <td>アプリ全体の状態を保持する仕組み。React の <code>useReducer</code> + Context で実装</td>
+          </tr>
+          <tr>
+            <td>スライス</td>
+            <td><code>slice</code></td>
+            <td>State Store の一部領域（<code>auth</code> / <code>job</code> / <code>ui</code>）。Redux Toolkit の呼称を借用</td>
+          </tr>
+          <tr>
+            <td>Copy Engine</td>
+            <td><code>CopyEngine</code></td>
+            <td>フォルダ複製の中核ロジック。再帰トラバース・進捗イベント・中止判定を担う</td>
+          </tr>
+          <tr>
+            <td>URL Parser</td>
+            <td><code>UrlParser</code></td>
+            <td>共有 URL からフォルダ ID を抽出する純粋関数モジュール</td>
+          </tr>
+          <tr>
+            <td>Drive API Client</td>
+            <td><code>DriveApiClient</code></td>
+            <td>Google Drive API への HTTP リクエストを薄くラップするモジュール。リトライと並列度制御を内蔵</td>
+          </tr>
+          <tr>
+            <td>Auth Client</td>
+            <td><code>AuthClient</code></td>
+            <td>GIS をラップした認証モジュール</td>
+          </tr>
+          <tr>
+            <td>セマフォ</td>
+            <td><code>semaphore</code></td>
+            <td>並列実行数を制限する同期プリミティブ。Drive API への同時リクエストを 4 に抑える</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="process-terms">
+      <h2>6. プロセス / 開発フロー用語</h2>
+      <table>
+        <thead>
+          <tr><th>正式名称</th><th>定義</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>永続的ドキュメント</td>
+            <td><code>docs/</code> 配下に置かれる恒久的な仕様文書。アプリの「正」</td>
+          </tr>
+          <tr>
+            <td>作業単位のドキュメント / ステアリング</td>
+            <td><code>.steering/YYYYMMDD-開発タイトル/</code> 配下に置く一時的な作業文書（requirements / design / tasklist）</td>
+          </tr>
+          <tr>
+            <td>UI 影響セクション</td>
+            <td>ステアリングの <code>design.html</code> に必須で含める節。UI 変更の有無と詳細、または「UI 変更なし」を明示する</td>
+          </tr>
+          <tr>
+            <td>AI コーディング開始ゲート</td>
+            <td>実装着手前にすべての必須ドキュメントが揃っていることを確認するチェックリスト。CLAUDE.md「AIコーディング開始ゲート」節参照</td>
+          </tr>
+          <tr>
+            <td>受け入れ条件（Acceptance Criteria）</td>
+            <td>機能が「完了」と判定されるための具体的な条件群</td>
+          </tr>
+          <tr>
+            <td>ユーザーストーリー</td>
+            <td>ペルソナの立場で「〜したい、なぜなら〜だから」と書いた要求の単位</td>
+          </tr>
+          <tr>
+            <td>ユースケース</td>
+            <td>システムとアクター間の相互作用を抽象化した単位。図はユースケース図として表現</td>
+          </tr>
+          <tr>
+            <td>KPI（成功定義）</td>
+            <td>プロダクトの成功を定量的に判定するための指標群。プロダクト要求 §4 に定義</td>
+          </tr>
+          <tr>
+            <td>ハッピーパス</td>
+            <td>エラーが起きずに最後まで進む基本フロー。E2E テストの第一の対象</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="avoid-table">
+      <h2>7. 揺れがちな表現の対応表</h2>
+      <p>「同じものを違う言葉で呼んでしまう」事故が起きやすい組み合わせ。レビューで気づいたら正しい呼称に揃える。</p>
+      <table>
+        <thead>
+          <tr><th>避ける表現</th><th>正式名称</th><th>備考</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>コピー / コピーする</td><td>複製 / フォルダ複製</td><td>Drive 標準 UI が「コピーを作成」と表記するため、操作名としては許容範囲だが、本書・コード上では「複製」に統一</td></tr>
+          <tr><td>コピー先 / 保存先</td><td>複製先（フォルダ）</td><td>—</td></tr>
+          <tr><td>コピー元 / 元データ</td><td>複製元（フォルダ）</td><td>—</td></tr>
+          <tr><td>停止 / 強制終了 / 中断</td><td>中止</td><td>UI ラベル「中止」と一致させる</td></tr>
+          <tr><td>キャンセル（処理について）</td><td>中止</td><td>「キャンセル」は SCR-002-home の入力クリア用</td></tr>
+          <tr><td>失敗（個別アイテム）</td><td>スキップ</td><td>全体は止めないため</td></tr>
+          <tr><td>エラー（個別アイテム）</td><td>スキップ理由</td><td>UI には「スキップ理由」、コード内は <code>errorMessage</code> 可</td></tr>
+          <tr><td>ダウンロード</td><td>複製</td><td>本アプリはローカルへのダウンロードを行わない</td></tr>
+          <tr><td>同期</td><td>複製</td><td>双方向同期は MVP 非対応。誤解を避けるため使わない</td></tr>
+          <tr><td>サインイン / ログオン</td><td>ログイン</td><td>UI ラベル「Google でログイン」と一致</td></tr>
+          <tr><td>パスワード</td><td>—（本アプリは扱わない）</td><td>OAuth 経由のため本アプリはパスワードを取得しない</td></tr>
+          <tr><td>API キー</td><td>OAuth クライアント ID</td><td>静的な API キーではないため</td></tr>
+          <tr><td>タスク</td><td>ジョブ</td><td>1 回の複製処理単位</td></tr>
+          <tr><td>サマリー / 結果</td><td>完了レポート（レポート）</td><td>—</td></tr>
+          <tr><td>ページ</td><td>画面</td><td>SPA だが、ユーザー目線では「画面」で統一</td></tr>
+          <tr><td>ダイアログ（単独）</td><td>確認ダイアログ / モーダル</td><td>どちらかを具体的に指定</td></tr>
+          <tr><td>通知バー / スナックバー</td><td>トースト</td><td>—</td></tr>
+          <tr><td>テーマカラー</td><td>デザイントークン（の色）</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <p class="callout-warn">
+        本表に未登録の新しい揺れに気づいたら、必ず本書に追記したうえで、影響範囲（<a href="ui-specification.html">UI 仕様書</a> / <a href="functional-design.html">機能設計書</a> / コード）に同 PR で反映する。
+      </p>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer">
+    <a class="back-link" href="index.html">← ドキュメント一覧へ</a>
+    <p>関連ドキュメント: <a href="ui-specification.html">UI仕様</a> / <a href="functional-design.html">機能設計</a> / <a href="development-guidelines.html">開発ガイドライン</a></p>
+  </footer>
+
+</body>
+</html>

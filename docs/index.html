@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ドキュメント一覧 — Google Drive バックアップ</title>
+  <link rel="stylesheet" href="assets/design-system.css">
+</head>
+<body>
+
+  <header class="doc-header">
+    <h1>Google Drive バックアップ — ドキュメント一覧</h1>
+    <p class="doc-meta">最終更新: 2026-05-28 ／ ステータス: 初回セットアップ完了</p>
+  </header>
+
+  <main>
+
+    <section>
+      <h2>プロジェクト概要</h2>
+      <p>
+        <strong>Google Drive バックアップ</strong> は、Drive 内のフォルダをまるごと「Copy of 元フォルダ名」として同じ親階層に複製する Web アプリ。
+        ローカル PC のストレージを使わず、Drive 内で完結するスナップショット作成・雛形流用を可能にする。
+      </p>
+      <p>
+        本プロジェクトの根本方針は CLAUDE.md に従い <strong>「作るものをはっきりさせてから AI のコーディングを始める」</strong>。
+        実装に着手する前に、以下のドキュメント群と作業単位ステアリングがすべて承認済みであることを確認する。
+      </p>
+    </section>
+
+    <section>
+      <h2>永続的ドキュメント（<code>docs/</code>）</h2>
+      <p>「アプリ全体として何を作るか／どう作るか」を定義する恒久ドキュメント。仕様変更時は同 PR で更新する。</p>
+
+      <div class="screen-card">
+        <a href="product-requirements.html"><strong>1. プロダクト要求定義書</strong></a>
+        <p>ビジョン ／ ターゲットユーザー ／ 機能要件（FR）／ 非機能要件（NFR）／ ユーザーストーリー ／ 受け入れ条件 ／ ユースケース図 ／ 制約と前提</p>
+      </div>
+
+      <div class="screen-card">
+        <a href="ui-specification.html"><strong>2. UI 仕様書</strong></a>
+        <p>デザイン原則 ／ 画面一覧（SCR-001〜004）／ 画面遷移図 ／ 各画面のワイヤフレーム（PC・モバイル）／ UI 要素 ／ 状態定義 ／ アクセシビリティ ／ 共通コンポーネント ／ デザイントークン ／ 用語整合</p>
+      </div>
+
+      <div class="screen-card">
+        <a href="functional-design.html"><strong>3. 機能設計書</strong></a>
+        <p>アーキテクチャ ／ システム構成図 ／ データモデル（ER 図）／ コンポーネント設計 ／ 状態管理 ／ 永続化 ／ 複製アルゴリズム ／ エラーハンドリング ／ 内部 API ／ 外部 API（Google Drive API）／ 未決事項</p>
+      </div>
+
+      <div class="screen-card">
+        <a href="architecture.html"><strong>4. 技術仕様書</strong></a>
+        <p>テクノロジースタック（React + TypeScript + Vite）／ 開発ツール（Vitest / Playwright / ESLint / Prettier）／ ビルド・デプロイ（GitHub Pages）／ ブラウザサポート ／ パフォーマンス要件 ／ セキュリティ ／ 依存ライブラリ</p>
+      </div>
+
+      <div class="screen-card">
+        <a href="repository-structure.html"><strong>5. リポジトリ構造定義書</strong></a>
+        <p>全体ツリー ／ トップレベル各ディレクトリの役割 ／ <code>src/</code> の内訳 ／ レイヤー依存方向ルール ／ <code>tests/</code> の内訳 ／ 設定ファイル ／ ファイル配置の判断フロー ／ 命名規則</p>
+      </div>
+
+      <div class="screen-card">
+        <a href="development-guidelines.html"><strong>6. 開発ガイドライン</strong></a>
+        <p>コーディング規約（TypeScript / React / hooks / 状態管理 / エラー）／ コード内の命名規則 ／ スタイリング（CSS Modules / トークン / レスポンシブ）／ テスト規約 ／ Git 規約（ブランチ / コミット / PR）／ ドキュメント保守 ／ レビュー観点</p>
+      </div>
+
+      <div class="screen-card">
+        <a href="glossary.html"><strong>7. 用語集 / ユビキタス言語</strong></a>
+        <p>Google Drive 関連 ／ 複製処理 ／ 認証 ／ UI/UX ／ アーキテクチャ ／ プロセス用語 ／ 揺れがちな表現の対応表（「コピー→複製」「停止→中止」「失敗→スキップ」等）</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>作業単位のドキュメント（<code>.steering/</code>）</h2>
+      <p>
+        特定の作業について「今回何をするか」を定義する一時的なドキュメント。
+        ディレクトリ命名: <code>.steering/YYYYMMDD-開発タイトル/</code>。
+        各ディレクトリには次の 3 ファイルが入る：
+      </p>
+      <ul>
+        <li><strong>requirements.html</strong> — 今回の要求内容・ユーザーストーリー・受け入れ条件・制約</li>
+        <li><strong>design.html</strong> — 実装アプローチ・変更コンポーネント・データ構造変更・影響範囲。<strong>UI 影響セクション必須</strong></li>
+        <li><strong>tasklist.md</strong> — 実装タスク・進捗・完了条件</li>
+      </ul>
+      <p>本リポジトリ初回セットアップ後の作業単位（予定）:</p>
+      <ul>
+        <li><code>.steering/20260528-initial-implementation/</code> — MVP 初回実装（このあと作成）</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>共通アセット</h2>
+      <ul>
+        <li><a href="assets/design-system.css">assets/design-system.css</a> — 全 HTML が参照する共通スタイル（デザイントークン定義含む）</li>
+        <li><a href="assets/template.html">assets/template.html</a> — 新規 HTML 作成時の雛形</li>
+        <li><code>assets/images/</code> — 画像（PNG / SVG）配置先（現在空）</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>AI コーディング開始ゲート</h2>
+      <p>CLAUDE.md「AIコーディング開始ゲート」のチェックリストがすべて充足されるまで、実装コードの編集を開始しない。詳細は <a href="../CLAUDE.md">CLAUDE.md</a> を参照。</p>
+      <ul>
+        <li>[7/7] 上記 1〜7 のドキュメントが承認済み</li>
+        <li>[未] 作業単位のステアリング（requirements / design / tasklist）が承認済み</li>
+        <li>[未] UI 影響セクションが design.html に含まれている</li>
+        <li>[未] ゲート通過がユーザーから明言されている</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer">
+    <p>© Google Drive バックアップ プロジェクト ／ ドキュメント生成は CLAUDE.md の運用ルールに基づく</p>
+  </footer>
+
+</body>
+</html>

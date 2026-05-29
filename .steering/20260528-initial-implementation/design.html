@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>設計書 — 20260528 初回実装 (MVP)</title>
+  <link rel="stylesheet" href="../../docs/assets/design-system.css">
+</head>
+<body>
+
+  <header class="doc-header">
+    <a class="back-link" href="../../docs/index.html">← ドキュメント一覧へ</a>
+    <h1>設計書 — 初回実装 (MVP)</h1>
+    <p class="doc-meta">作業ID: 20260528-initial-implementation ／ 最終更新: 2026-05-28（8決定反映）／ ステータス: ドラフト</p>
+  </header>
+
+  <details class="toc" open>
+    <summary>目次</summary>
+    <nav aria-label="目次">
+      <ol>
+        <li><a href="#approach">1. 実装アプローチの全体方針</a></li>
+        <li><a href="#phases">2. 段階別の実装計画</a></li>
+        <li><a href="#component-mapping">3. 仕様 ⇄ 実装ファイルの対応</a></li>
+        <li><a href="#data-structures">4. データ構造の変更</a></li>
+        <li><a href="#impact-scope">5. 既存コードへの影響範囲</a></li>
+        <li><a href="#ui-impact">6. UI 影響セクション【必須】</a></li>
+        <li><a href="#risks">7. リスクと判断ポイント</a></li>
+        <li><a href="#unresolved">8. 本作業中に決定する未決事項</a></li>
+      </ol>
+    </nav>
+  </details>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section id="approach">
+      <h2>1. 実装アプローチの全体方針</h2>
+      <p>
+        プロダクト要求と機能設計はすでに確定しているため、本作業では <strong>「仕様の通りに作る」</strong>ことを最優先する。
+        新規の意思決定はできるだけ避け、未決事項（機能設計書 §11）に該当する判断のみ本作業の中で行う。
+      </p>
+
+      <h3>1.1 守る前提</h3>
+      <ul>
+        <li><strong>レイヤー依存方向</strong>（views → state → domain → infra）を最初から守る（後から直すのはコスト大）</li>
+        <li><strong>infra 層のみが外部 IO を持つ</strong>。<code>fetch</code> や <code>window.google</code> を直接触るのは <code>src/infra/</code> のみ</li>
+        <li><strong>domain は React 非依存</strong>。CopyEngine / UrlParser / ReportBuilder は純粋関数（または小さなクラス）で書き、Vitest で単体テスト可能にする</li>
+        <li><strong>State Store は <code>useReducer</code> + Context を 1 セットだけ</strong>。スライス（auth / job / ui）はファイル分割で表現</li>
+      </ul>
+
+      <h3>1.2 順序の原則</h3>
+      <ol>
+        <li>動かない基盤（依存・設定）を整える</li>
+        <li>UI ガワだけ作って配線する（API はスタブ）</li>
+        <li>infra 層を実装して本物の API に接続する</li>
+        <li>CopyEngine を実装して再帰複製を動かす</li>
+        <li>エラー・中止・レポートを仕上げる</li>
+        <li>CI / デプロイを通す</li>
+      </ol>
+      <p>各段階で動く状態を維持し、まとまった単位で PR を切る。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="phases">
+      <h2>2. 段階別の実装計画</h2>
+      <p>tasklist.md でこの段階をタスクに展開する。本書はその段階の中身を設計レベルで規定する。</p>
+
+      <h3>フェーズ A: プロジェクト立ち上げ</h3>
+      <ul>
+        <li>Vite + React + TypeScript テンプレで <code>npm create vite@latest</code> 相当の最小プロジェクトを作る</li>
+        <li><code>tsconfig.json</code> に <code>strict: true</code> / <code>noUncheckedIndexedAccess: true</code> を設定</li>
+        <li>ESLint / Prettier / EditorConfig を導入し、初回 lint を通す</li>
+        <li>Vitest + @testing-library/react のセットアップ、ダミーテストで green を確認</li>
+        <li>Playwright の最小セットアップ（実テストは後段）</li>
+        <li><code>src/styles/tokens.css</code> に <code>docs/assets/design-system.css</code> のカラー・スペーシング変数をコピー</li>
+        <li><code>src/styles/global.css</code> に <code>body</code> リセットとフォントスタックを設定</li>
+        <li><code>index.html</code> に CSP メタタグ・GIS スクリプト・タイトルを設定</li>
+        <li><code>.gitignore</code> / <code>.editorconfig</code> / README の最小版を整備</li>
+      </ul>
+
+      <h3>フェーズ B: 型とドメインの土台</h3>
+      <ul>
+        <li><code>src/types/index.ts</code> に機能設計書 §3 の型を全部宣言（<code>AuthState</code>, <code>UserInfo</code>, <code>FolderMetadata</code>, <code>CopyJob</code>, <code>CopyJobItem</code>, <code>Report</code>, <code>DriveItem</code>）。FolderMetadata に <code>isInSharedDrive</code> / <code>destinationParentId</code> / <code>canDuplicateHere</code>、CopyJobItem.status に <code>'aborted'</code> を含めること</li>
+        <li><code>src/domain/UrlParser.ts</code> + テスト（5 URL 形式 + ID 単独 + 不正入力）</li>
+        <li><code>src/utils/backoff.ts</code> + テスト</li>
+        <li><code>src/utils/semaphore.ts</code> + テスト</li>
+        <li><code>src/utils/abortable.ts</code>（任意）— <code>AbortSignal</code> を引数で受け取って待機やリトライを<strong>キャンセル可能</strong>にするヘルパー</li>
+        <li><code>src/domain/ReportBuilder.ts</code> + テスト（集計とプレーンテキスト変換）。aborted カウントもサポート</li>
+      </ul>
+
+      <h3>フェーズ C: State Store と Router</h3>
+      <ul>
+        <li><code>src/state/authSlice.ts</code> / <code>jobSlice.ts</code> / <code>uiSlice.ts</code>（Action + Reducer）</li>
+        <li><code>src/state/AppContext.tsx</code>（Provider + 2 つの Context + hooks）</li>
+        <li><code>src/routes/router.tsx</code>（HashRouter で 4 ルート定義）</li>
+        <li>各 View をプレースホルダ実装（中身は <code>&lt;h2&gt;HomeView&lt;/h2&gt;</code> 程度）し、画面遷移が動くことを確認</li>
+      </ul>
+
+      <h3>フェーズ D: 共通コンポーネントと UI ガワ</h3>
+      <ul>
+        <li><code>src/components/Button/</code>（Primary / Secondary / Tertiary / Danger）</li>
+        <li><code>src/components/Header/</code>（ユーザー識別 + ログアウトリンク）</li>
+        <li><code>src/components/Toast/</code> + uiSlice 経由の発火</li>
+        <li><code>src/components/ConfirmDialog/</code> + uiSlice 経由の発火</li>
+        <li><code>src/components/ProgressBar/</code></li>
+        <li><code>src/components/Spinner/</code></li>
+        <li>4 View の UI を実装。データはモックで配線（ボタン押下で alert ではなく、UI 仕様書 §3 の状態遷移を Story 的に確認できる）</li>
+        <li>HomeView では「情報を取得」ボタンを<strong>持たず</strong>、URL 入力の onChange に debounce(500ms) を掛けて自動取得をトリガする実装に固定する</li>
+        <li>HomeView のプレビュー状態として「複製可能」と「複製不可（親階層に書き込み権限なし）」の 2 種を実装、後者では「複製を開始」を disabled、エラー文言（UI 仕様書 §3.2.4）を表示</li>
+        <li>ProgressView の進捗バー幅は <code>aria-valuenow</code> と連動。total が処理中に増加した場合、バーが瞬間的に逆戻りしても表示しっぱなしにする（強制 monotonic にはしない）</li>
+      </ul>
+
+      <h3>フェーズ E: infra 層</h3>
+      <ul>
+        <li><code>src/infra/AuthClient.ts</code>（GIS を <code>document.head</code> に注入し、<code>initTokenClient</code> をラップ）</li>
+        <li><code>src/infra/driveTypes.ts</code>（Drive API レスポンスの型。<code>capabilities</code> / <code>driveId</code> を含める）</li>
+        <li><code>src/infra/DriveApiClient.ts</code>（fetch + Bearer + 429/5xx リトライ + 並列セマフォ）
+          <ul>
+            <li><strong>全メソッドが <code>options.signal?: AbortSignal</code> を受け取り、内部 fetch に伝搬する</strong></li>
+            <li><code>getFolder(id, { fields: "...,driveId,capabilities(canAddChildren,canCopy)" })</code> をデフォルト fields とする</li>
+            <li><code>findAvailableName(baseName, parentId, { signal })</code> を実装（機能設計書 §7.5、10 件バッチ + 11 以降は逐次照会）</li>
+            <li>リトライ中であっても <code>signal.aborted</code> なら即座に <code>AbortError</code> を上に投げる（バックオフ待ちを中断するため <code>src/utils/abortable.ts</code> を活用）</li>
+          </ul>
+        </li>
+        <li>infra 層のテストは「fetch を <code>vi.fn()</code> で差し替えて期待リクエストを検証」する単位で
+          <ul>
+            <li><code>signal.abort()</code> → 進行中 fetch が <code>AbortError</code> を投げる確認</li>
+            <li><code>findAvailableName</code> で 0 件 / 1 件 / 10 件 / 11 件以上の各ケースを確認</li>
+          </ul>
+        </li>
+      </ul>
+
+      <h3>フェーズ F: CopyEngine</h3>
+      <ul>
+        <li><code>src/domain/CopyEngine.ts</code>（機能設計書 §7 の疑似コードを実装）。内部で 1 個の <code>AbortController</code> を保持、全 driveApi 呼び出しに同じ <code>signal</code> を渡す</li>
+        <li>事前バリデーション 3 ステップを冒頭で実行：
+          <ol>
+            <li>元フォルダ取得 → <code>driveId</code> が返れば <code>SHARED_DRIVE_UNSUPPORTED</code> エラー</li>
+            <li><code>parents[0]</code> が <code>"root"</code> でなければ親フォルダ取得 → <code>capabilities.canAddChildren</code> が false なら <code>NO_PARENT_WRITE_PERMISSION</code> エラー</li>
+            <li><code>findAvailableName</code> で衝突しない複製先名を決定（"Copy of XXX" → "Copy of XXX (2)" …）</li>
+          </ol>
+        </li>
+        <li>start メソッドは <code>{ cancel, done }</code> を返す。<code>cancel()</code> は <code>controller.abort()</code> を呼ぶ</li>
+        <li>列挙と複製を並行する BFS。<code>onProgress</code> の <code>total</code> は処理中に増加してよい</li>
+        <li>個別エラーは catch → スキップ続行、<code>AbortError</code> のみは catch して該当アイテムを <code>'aborted'</code> 記録した上で再 throw → ループ脱出</li>
+        <li>DriveApiClient インターフェースをモック注入できる形にし、Vitest で以下を検証：
+          <ul>
+            <li>3 階層の小さな構造を再帰的に複製できる</li>
+            <li>個別エラー（403 / 404）でスキップして続行する</li>
+            <li><code>cancel()</code> 呼び出しで進行中の処理が即座に <code>AbortError</code> で失敗し、aborted で記録される</li>
+            <li><strong>共有ドライブのフォルダを指定したらエラーで開始失敗</strong>する</li>
+            <li><strong>親階層書込権限なしのフォルダを指定したらエラーで開始失敗</strong>する</li>
+            <li><strong>findAvailableName が空き番号を返す</strong>（0 件 / 既存あり / (2)あり / (2)(3)あり の各ケース）</li>
+            <li>onProgress / onItemStarted / onItemFinished / onJobFinished が呼ばれる</li>
+            <li>onProgress の total が増えるケース（再帰中にサブフォルダを展開）を確認</li>
+          </ul>
+        </li>
+      </ul>
+
+      <h3>フェーズ G: 全結合 + ハッピーパス確認</h3>
+      <ul>
+        <li>各 View のモックを外し、State Store + CopyEngine + DriveApiClient + AuthClient を結合</li>
+        <li>本物の OAuth クライアント ID を <code>.env.local</code> に設定し、手動でハッピーパスを確認（テスト用 Drive アカウント / 小さなフォルダ）</li>
+        <li>UI 仕様書 §3 の状態（空 / 読込中 / エラー / 成功）を全画面で目視確認</li>
+        <li>Playwright E2E（スタブモード）で 1 本のハッピーパスを書く</li>
+      </ul>
+
+      <h3>フェーズ H: CI / デプロイ</h3>
+      <ul>
+        <li><code>.github/workflows/ci.yml</code>（PR: typecheck + lint + test）</li>
+        <li><code>.github/workflows/deploy.yml</code>（main: build + GitHub Pages へ deploy）</li>
+        <li><code>vite.config.ts</code> の <code>base</code> をリポジトリ名に設定</li>
+        <li>GitHub Secrets に本番用 <code>VITE_GOOGLE_CLIENT_ID</code> を登録</li>
+        <li>初回デプロイを実行し、本番 URL からハッピーパスを確認</li>
+      </ul>
+
+      <h3>フェーズ I: 仕上げ</h3>
+      <ul>
+        <li>README に「セットアップ手順」「OAuth クライアント ID の取得方法」「npm スクリプト一覧」を記述</li>
+        <li>本書中の未決事項（後述 §8）の決定結果を、永続ドキュメントに反映</li>
+        <li>レポートのプレーンテキストコピーが動作することを確認</li>
+        <li>アクセシビリティの最低確認（キーボード操作 / focus 可視 / aria-live）</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="component-mapping">
+      <h2>3. 仕様 ⇄ 実装ファイルの対応</h2>
+
+      <h3>3.1 画面と View の対応</h3>
+      <table>
+        <thead><tr><th>画面 ID</th><th>仕様参照</th><th>実装ファイル</th></tr></thead>
+        <tbody>
+          <tr><td>SCR-001-login</td><td><a href="../../docs/ui-specification.html#scr-001-login">UI仕様 §3.1</a></td><td><code>src/views/LoginView/LoginView.tsx</code></td></tr>
+          <tr><td>SCR-002-home</td><td><a href="../../docs/ui-specification.html#scr-002-home">UI仕様 §3.2</a></td><td><code>src/views/HomeView/HomeView.tsx</code></td></tr>
+          <tr><td>SCR-003-progress</td><td><a href="../../docs/ui-specification.html#scr-003-progress">UI仕様 §3.3</a></td><td><code>src/views/ProgressView/ProgressView.tsx</code></td></tr>
+          <tr><td>SCR-004-report</td><td><a href="../../docs/ui-specification.html#scr-004-report">UI仕様 §3.4</a></td><td><code>src/views/ReportView/ReportView.tsx</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.2 共通コンポーネントの対応</h3>
+      <table>
+        <thead><tr><th>コンポーネント</th><th>仕様参照</th><th>実装ファイル</th></tr></thead>
+        <tbody>
+          <tr><td>Button</td><td><a href="../../docs/ui-specification.html#common-components">UI仕様 §4.1</a></td><td><code>src/components/Button/Button.tsx</code></td></tr>
+          <tr><td>Header</td><td>UI仕様 各画面のヘッダー部</td><td><code>src/components/Header/Header.tsx</code></td></tr>
+          <tr><td>Toast</td><td><a href="../../docs/ui-specification.html#common-components">UI仕様 §4.4</a></td><td><code>src/components/Toast/Toast.tsx</code></td></tr>
+          <tr><td>ConfirmDialog</td><td><a href="../../docs/ui-specification.html#common-components">UI仕様 §4.3</a></td><td><code>src/components/ConfirmDialog/ConfirmDialog.tsx</code></td></tr>
+          <tr><td>ProgressBar</td><td><a href="../../docs/ui-specification.html#common-components">UI仕様 §4.5</a></td><td><code>src/components/ProgressBar/ProgressBar.tsx</code></td></tr>
+          <tr><td>Spinner</td><td>UI仕様 §3.1.4 等</td><td><code>src/components/Spinner/Spinner.tsx</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.3 ロジック層と実装の対応</h3>
+      <table>
+        <thead><tr><th>モジュール</th><th>仕様参照</th><th>実装ファイル</th></tr></thead>
+        <tbody>
+          <tr><td>State Store</td><td><a href="../../docs/functional-design.html#state-management">機能設計 §5</a></td><td><code>src/state/AppContext.tsx</code> ＋ <code>authSlice.ts</code> / <code>jobSlice.ts</code> / <code>uiSlice.ts</code></td></tr>
+          <tr><td>UrlParser</td><td><a href="../../docs/functional-design.html#component-design">機能設計 §4.2</a></td><td><code>src/domain/UrlParser.ts</code></td></tr>
+          <tr><td>CopyEngine</td><td><a href="../../docs/functional-design.html#copy-algorithm">機能設計 §7</a></td><td><code>src/domain/CopyEngine.ts</code></td></tr>
+          <tr><td>ReportBuilder</td><td><a href="../../docs/functional-design.html#data-model">機能設計 §3.1 Report</a></td><td><code>src/domain/ReportBuilder.ts</code></td></tr>
+          <tr><td>AuthClient</td><td><a href="../../docs/functional-design.html#internal-api">機能設計 §9.1</a></td><td><code>src/infra/AuthClient.ts</code></td></tr>
+          <tr><td>DriveApiClient</td><td><a href="../../docs/functional-design.html#external-api">機能設計 §9.3 / §10</a></td><td><code>src/infra/DriveApiClient.ts</code></td></tr>
+          <tr><td>指数バックオフ</td><td><a href="../../docs/functional-design.html#error-handling">機能設計 §8.2</a></td><td><code>src/utils/backoff.ts</code></td></tr>
+          <tr><td>並列度制御（セマフォ）</td><td><a href="../../docs/functional-design.html#copy-algorithm">機能設計 §7.2</a></td><td><code>src/utils/semaphore.ts</code></td></tr>
+          <tr><td>Router</td><td><a href="../../docs/architecture.html#stack">技術仕様 §1.1</a></td><td><code>src/routes/router.tsx</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="data-structures">
+      <h2>4. データ構造の変更</h2>
+      <p>
+        本作業は <strong>初回実装</strong>であり、既存のデータ構造を変更しない。
+        実装する型は <a href="../../docs/functional-design.html#data-model">機能設計書 §3</a> で定義済みの
+        <code>AuthState</code> / <code>UserInfo</code> / <code>FolderMetadata</code> / <code>CopyJob</code> / <code>CopyJobItem</code> / <code>Report</code> をそのまま <code>src/types/index.ts</code> に宣言する。
+      </p>
+      <p>実装中に必要だと判明した補助型は <code>src/types/</code> ではなく利用層に閉じた場所（<code>infra/driveTypes.ts</code> 等）に置く。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="impact-scope">
+      <h2>5. 既存コードへの影響範囲</h2>
+      <p>
+        本作業は <strong>初回実装</strong>のため、既存の実装コードへの影響は <strong>該当なし</strong>。
+        変更されるのは以下のみ：
+      </p>
+      <ul>
+        <li>新規ファイル: <code>src/**</code> / <code>tests/**</code> / <code>.github/workflows/**</code> / 設定ファイル各種</li>
+        <li>既存ドキュメントの追記（永続ドキュメントの未決事項を埋める更新が発生する可能性あり）</li>
+      </ul>
+      <p>削除されるファイルはない。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="ui-impact">
+      <h2>6. UI 影響セクション【必須】</h2>
+
+      <h3>6.1 結論</h3>
+      <p>
+        <strong>本作業は新規実装であり、UI 仕様書（<code>docs/ui-specification.html</code>）の変更は不要</strong>。
+        実装は UI 仕様書 §3 のワイヤフレーム・UI 要素一覧・状態定義に <strong>1:1 で従う</strong>。
+      </p>
+      <p>仕様書側の更新が発生するのは、実装中に「ワイヤフレームの記述では足りない／矛盾する」点が見つかった場合に限る（その場合は同 PR で仕様書も更新する）。</p>
+
+      <h3>6.2 新規実装する画面リスト</h3>
+      <table>
+        <thead><tr><th>画面 ID</th><th>画面名</th><th>仕様参照</th></tr></thead>
+        <tbody>
+          <tr><td>SCR-001-login</td><td>ログイン</td><td><a href="../../docs/ui-specification.html#scr-001-login">UI仕様 §3.1</a></td></tr>
+          <tr><td>SCR-002-home</td><td>ホーム（URL指定とプレビュー）</td><td><a href="../../docs/ui-specification.html#scr-002-home">UI仕様 §3.2</a></td></tr>
+          <tr><td>SCR-003-progress</td><td>複製中（進捗）</td><td><a href="../../docs/ui-specification.html#scr-003-progress">UI仕様 §3.3</a></td></tr>
+          <tr><td>SCR-004-report</td><td>完了レポート</td><td><a href="../../docs/ui-specification.html#scr-004-report">UI仕様 §3.4</a></td></tr>
+        </tbody>
+      </table>
+
+      <h3>6.3 差分ワイヤフレーム</h3>
+      <p>
+        本作業は新規実装のため、<strong>「変更前ワイヤフレーム」は存在しない</strong>。
+        実装後の見た目は <a href="../../docs/ui-specification.html">UI 仕様書</a> 内のワイヤフレーム（図2〜5）をそのまま実装する。
+      </p>
+
+      <h3>6.4 新規 UI 要素</h3>
+      <p>
+        新規 UI 要素は <strong>UI 仕様書 §3 各画面の「UI 要素一覧」</strong>に既に列挙されている。本作業ではそれらを実装するだけで、新規追加は行わない。
+      </p>
+
+      <h3>6.5 状態定義の変更点</h3>
+      <p>
+        変更なし。実装は UI 仕様書 §3.x.4「状態定義」の表に従う。
+      </p>
+
+      <h3>6.6 アクセシビリティ実装の責務</h3>
+      <p>
+        実装時には UI 仕様書 §3.x.6「アクセシビリティ」の要件を必ず満たすこと。具体的には：
+      </p>
+      <ul>
+        <li><code>&lt;label for&gt;</code> による入力欄ラベリング</li>
+        <li>エラーメッセージの <code>aria-live="polite"</code></li>
+        <li>進捗バーの <code>role="progressbar"</code> + <code>aria-valuenow</code></li>
+        <li>キーボード操作（Tab / Enter / Esc）の動作確認</li>
+        <li>フォーカスリングを <code>:focus-visible</code> で維持</li>
+        <li>カラーコントラスト 4.5:1（design-system.css のトークン使用で担保）</li>
+      </ul>
+
+      <h3>6.7 用語整合（glossary との整合）</h3>
+      <p>
+        実装上のコード命名は <a href="../../docs/glossary.html">用語集</a> の英語 (code) 列に従う：
+      </p>
+      <ul>
+        <li>複製先 = <code>destination</code>（<code>dest</code> / <code>target</code> 禁止）</li>
+        <li>複製元 = <code>source</code>（<code>src</code> / <code>original</code> 禁止）</li>
+        <li>スキップ = <code>skipped</code>（個別アイテムでは <code>failed</code> としない）</li>
+        <li>中止 = <code>cancel</code>（ユーザー操作の総称）、内部 fetch 中断は <code>abort</code> / <code>AbortError</code> / <code>AbortSignal</code> を使用</li>
+        <li>個別アイテムが中止対象になった状態 = <code>aborted</code>（'skipped' とは区別）</li>
+      </ul>
+
+      <h3>6.8 ui-specification.html 更新の要否</h3>
+      <p>
+        <strong>本作業の事前時点では更新不要</strong>。実装の過程で仕様との不整合が見つかった場合のみ、同 PR で仕様を更新する（更新時は本 design.html も追記する）。
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="risks">
+      <h2>7. リスクと判断ポイント</h2>
+      <table>
+        <thead>
+          <tr><th>リスク</th><th>影響</th><th>対応</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>OAuth クライアント ID の発行・設定が手間取る</td>
+            <td>フェーズ G の手動確認・フェーズ H のデプロイで詰まる</td>
+            <td>フェーズ A の最初に発行とリダイレクト URI 設定を済ませる</td>
+          </tr>
+          <tr>
+            <td>長時間処理中にアクセストークンが失効する</td>
+            <td>大きなフォルダで中断される</td>
+            <td>MVP は失効時に SCR-001-login へ戻すフォールバックで済ませる。実機で失効が頻発するならフェーズ I で GIS の自動再取得を検討</td>
+          </tr>
+          <tr>
+            <td>Drive API の 429 が想定より頻繁に発生</td>
+            <td>体感速度が悪化</td>
+            <td>セマフォの並列度（既定 4）をフェーズ G で計測し、必要に応じて下げる</td>
+          </tr>
+          <tr>
+            <td>OAuth スコープ（drive.readonly が強権限）への懸念</td>
+            <td>ユーザーへの説明が必要</td>
+            <td>2026-05-28 確定: URL 貼り付け方式維持のため <code>drive.readonly + drive.file</code> 併用で行く。Picker API は不採用。<a href="../../docs/architecture.html#security">技術仕様 §6.1</a> に反映済み。README に「drive.readonly が要求されますが本アプリは元データを変更しません」と明示</td>
+          </tr>
+          <tr>
+            <td>GitHub Pages のサブパス配信で hash router が正しく動かない</td>
+            <td>本番で 404 が出る</td>
+            <td><code>vite.config.ts</code> の <code>base</code> を正しく設定し、フェーズ H で本番動作確認</td>
+          </tr>
+          <tr>
+            <td>CSP がインラインスタイルや GIS スクリプトと衝突</td>
+            <td>機能が動かない / コンソールエラー</td>
+            <td>技術仕様 §6.4 の CSP 案を素直に適用し、衝突が出たら個別緩和（その都度ドキュメント更新）</td>
+          </tr>
+          <tr>
+            <td>テスト用 Drive データの準備不足</td>
+            <td>手動確認が不十分</td>
+            <td>フェーズ G 前に「サブフォルダ 2 階層・Docs / Sheets / PDF 含む 10〜30 アイテムのテストフォルダ」を 1 つ作成</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="unresolved">
+      <h2>8. 本作業中に決定する未決事項</h2>
+      <p>機能設計書 §11.2「未決」のうち、本作業中に結論を出すもの。決定したら永続ドキュメントに反映する。</p>
+      <p class="callout-warn">
+        <strong>※ 2026-05-28 アップデート</strong>: 「OAuth スコープの最終決定」は本ステアリング作成後に <code>drive.readonly + drive.file</code> 確定（Picker 不採用）として決着済み。
+        当該項目は本リストから除外し、永続ドキュメント側に確定として反映済み。
+      </p>
+      <ol>
+        <li>
+          <strong>並列度の確定</strong>
+          <p>暫定 4 並列。フェーズ G で 10〜30 アイテムのテストフォルダを使い実測し、
+          429 発生頻度を観察。必要に応じ 2〜6 の範囲で調整し、
+          <a href="../../docs/functional-design.html#copy-algorithm">機能設計 §7.2</a> に確定値を記入する。</p>
+        </li>
+        <li>
+          <strong>長時間処理時のトークン更新方針</strong>
+          <p>GIS の <code>requestAccessToken</code> 自動再取得が効くかをフェーズ G で実機検証。
+          効けば現状の実装で十分。効かなければ「処理中断 → 再ログイン依頼」のフォールバックで MVP は妥協する。</p>
+        </li>
+        <li>
+          <strong>findAvailableName の照会上限</strong>
+          <p>機能設計書 §7.5 では 10 件バッチ + 11〜99 を逐次照会としたが、実利用では 2 〜 3 件あれば十分なはず。
+          フェーズ G で挙動確認後、上限を調整する（例: 99 → 20 に下げる）。</p>
+        </li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer">
+    <a class="back-link" href="../../docs/index.html">← ドキュメント一覧へ</a>
+    <p>関連: <a href="requirements.html">requirements.html</a> ／ <a href="tasklist.md">tasklist.md</a></p>
+  </footer>
+
+</body>
+</html>

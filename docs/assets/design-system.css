@@ -1,0 +1,421 @@
+/* ============================================================
+   Design System — Google Drive バックアップ プロジェクト
+   - Indigo accent
+   - Mobile-first responsive (min 320px)
+   - Light / Dark (prefers-color-scheme)
+   - Print A4
+   ============================================================ */
+
+:root {
+  --color-bg: #ffffff;
+  --color-surface: #f8fafc;
+  --color-surface-2: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-text-muted: #475569;
+  --color-accent: #4338ca;
+  --color-accent-hover: #3730a3;
+  --color-accent-bg: #eef2ff;
+  --color-code-bg: #f1f5f9;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Yu Gothic UI", "Hiragino Kaku Gothic ProN", Meiryo,
+    system-ui, sans-serif;
+  --font-mono:
+    "SFMono-Regular", Consolas, "Liberation Mono",
+    "Courier New", monospace;
+
+  --max-width: 880px;
+  --radius: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0f172a;
+    --color-surface: #1e293b;
+    --color-surface-2: #273449;
+    --color-border: #334155;
+    --color-text: #e2e8f0;
+    --color-text-muted: #94a3b8;
+    --color-accent: #818cf8;
+    --color-accent-hover: #a5b4fc;
+    --color-accent-bg: #1e1b4b;
+    --color-code-bg: #1e293b;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 1rem;
+  font-family: var(--font-sans);
+  line-height: 1.7;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+.doc-header,
+.toc,
+main,
+.doc-footer {
+  max-width: var(--max-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ----- Header ----- */
+.doc-header {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.doc-header h1 {
+  margin: 0.25rem 0;
+}
+.doc-meta {
+  color: var(--color-text-muted);
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* ----- Footer ----- */
+.doc-footer {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+/* ----- Headings ----- */
+h1 {
+  font-size: 1.875rem;
+  line-height: 1.3;
+  margin: 0 0 0.75rem;
+}
+h2 {
+  font-size: 1.5rem;
+  line-height: 1.3;
+  margin: 2.25rem 0 0.75rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+h3 {
+  font-size: 1.25rem;
+  line-height: 1.4;
+  margin: 1.75rem 0 0.5rem;
+}
+h4 {
+  font-size: 1.0625rem;
+  margin: 1.25rem 0 0.5rem;
+}
+
+p,
+ul,
+ol {
+  margin: 0.75rem 0;
+}
+ul,
+ol {
+  padding-left: 1.5rem;
+}
+
+/* ----- Links ----- */
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+.back-link {
+  display: inline-block;
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+}
+
+/* ----- TOC ----- */
+.toc {
+  margin: 1.5rem auto;
+  padding: 0.75rem 1rem;
+  background: var(--color-accent-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+.toc > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+.toc nav ol,
+.toc nav ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.5rem;
+}
+.toc[open] > summary {
+  margin-bottom: 0.25rem;
+}
+
+/* ----- Tables ----- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9375rem;
+}
+th,
+td {
+  border: 1px solid var(--color-border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: var(--color-surface);
+  font-weight: 600;
+}
+tbody tr:nth-child(even) {
+  background: var(--color-surface);
+}
+
+/* ----- Code ----- */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-code-bg);
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+}
+pre {
+  background: var(--color-code-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 1em;
+}
+
+/* ----- Figures ----- */
+figure {
+  margin: 1.25rem 0;
+}
+figure svg,
+figure img {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
+}
+figcaption {
+  color: var(--color-text-muted);
+  text-align: center;
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+/* ----- SVG defaults ----- */
+svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ----- Details (callouts / collapsibles) ----- */
+details {
+  margin: 1rem 0;
+  padding: 0.5rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.25rem 0;
+}
+details[open] > summary {
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* ----- Blockquote ----- */
+blockquote {
+  margin: 1rem 0;
+  padding: 0.5rem 1rem;
+  border-left: 4px solid var(--color-accent);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+/* ----- Horizontal rule ----- */
+hr {
+  margin: 2rem 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ----- Section spacing ----- */
+section + section {
+  margin-top: 2rem;
+}
+
+/* ----- Responsive ----- */
+@media (min-width: 768px) {
+  html {
+    font-size: 17px;
+  }
+  body {
+    padding: 2rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  body {
+    padding: 2.5rem 2rem;
+  }
+}
+
+/* ============================================================
+   UI Specification specific classes
+   - .wireframe: ワイヤフレームを囲む枠（PC / モバイル両用）
+   - .ui-state-table: 状態定義表の見た目強化
+   - .screen-card: 画面一覧カード
+   - .token-swatch: デザイントークン色見本
+   ============================================================ */
+
+.wireframe {
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin: 1rem 0;
+}
+.wireframe figcaption {
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: left;
+}
+.wireframe .wireframe-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+@media (min-width: 768px) {
+  .wireframe .wireframe-grid.two-up {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.ui-state-table th:first-child,
+.ui-state-table td:first-child {
+  width: 9rem;
+  font-weight: 600;
+  background: var(--color-surface);
+}
+
+.screen-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0;
+  background: var(--color-surface);
+}
+.screen-card .screen-id {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--color-accent);
+  margin-right: 0.5rem;
+}
+
+.token-swatch {
+  display: inline-block;
+  width: 1.2em;
+  height: 1.2em;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  vertical-align: -0.2em;
+  margin-right: 0.4em;
+}
+
+.priority-high  { color: #dc2626; font-weight: 600; }
+.priority-medium { color: #d97706; font-weight: 600; }
+.priority-low   { color: #16a34a; font-weight: 600; }
+
+.callout-warn {
+  border-left: 4px solid #d97706;
+  background: #fff7ed;
+  padding: 0.5rem 1rem;
+  margin: 1rem 0;
+  border-radius: var(--radius);
+  color: #7c2d12;
+}
+@media (prefers-color-scheme: dark) {
+  .callout-warn {
+    background: #3b2a14;
+    color: #fcd9b6;
+  }
+}
+
+/* ----- Print (A4) ----- */
+@media print {
+  @page {
+    size: A4;
+    margin: 18mm;
+  }
+  body {
+    padding: 0;
+    color: #000;
+    background: #fff;
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+  .back-link,
+  .doc-footer {
+    display: none;
+  }
+  a {
+    color: #000;
+    text-decoration: underline;
+  }
+  .toc {
+    background: none;
+    border: 1px solid #999;
+  }
+  pre,
+  table,
+  figure,
+  details {
+    page-break-inside: avoid;
+  }
+  h2,
+  h3 {
+    page-break-after: avoid;
+  }
+  details {
+    background: none;
+  }
+  details:not([open]) > *:not(summary) {
+    display: none;
+  }
+  details[open] > summary {
+    border-bottom: 1px solid #999;
+  }
+}
