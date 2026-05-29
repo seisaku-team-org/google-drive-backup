@@ -56,7 +56,7 @@ export type AuthClient = {
   consumeRedirectCallback: () => Promise<SignInResult | null>;
 };
 
-export function createAuthClient(clientId: string): AuthClient {
+export function createAuthClient(clientId: string, clientSecret?: string): AuthClient {
   let cachedToken: string | null = null;
   let cachedExpiresAt: number | null = null;
   const expiredHandlers = new Set<() => void>();
@@ -136,16 +136,21 @@ export function createAuthClient(clientId: string): AuthClient {
     }
 
     // code を access_token と交換
+    // Web Application 型 OAuth クライアントは client_secret が必須（PKCE 併用でも）
+    const tokenBody: Record<string, string> = {
+      client_id: clientId,
+      code,
+      code_verifier: codeVerifier,
+      grant_type: 'authorization_code',
+      redirect_uri: getRedirectUri(),
+    };
+    if (clientSecret) {
+      tokenBody.client_secret = clientSecret;
+    }
     const tokenRes = await fetch(TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: clientId,
-        code,
-        code_verifier: codeVerifier,
-        grant_type: 'authorization_code',
-        redirect_uri: getRedirectUri(),
-      }).toString(),
+      body: new URLSearchParams(tokenBody).toString(),
     });
 
     if (!tokenRes.ok) {

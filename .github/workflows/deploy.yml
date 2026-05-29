@@ -78,8 +78,9 @@ jobs:
       - run: npm ci
       - name: Build
         env:
-          # 本番用 OAuth クライアント ID（GitHub Secrets で設定）
+          # 本番用 OAuth クライアント ID / Secret（GitHub Secrets で設定）
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_CLIENT_SECRET: ${{ secrets.VITE_GOOGLE_CLIENT_SECRET }}
           # Pages のサブパス配信用 base。リポジトリ名から自動計算
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
         run: npm run build
